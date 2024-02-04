@@ -52,6 +52,7 @@ icecream
 streamlit-antd-components
 pdfminer
 instructor
+nest_asyncio
 unstructured_inference
 psutil
 pillow
