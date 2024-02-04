@@ -9,6 +9,7 @@ openpyxl
 xlsxwriter
 cohere
 llmsherpa
+llama-parse
 llama-hub
 qdrant_client 
 tools 
