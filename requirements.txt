@@ -51,6 +51,7 @@ portalocker
 icecream
 streamlit-antd-components
 pdfminer
+instructor
 unstructured_inference
 psutil
 pillow
