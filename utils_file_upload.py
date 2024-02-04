@@ -308,7 +308,7 @@ class FileUploader:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 ### Adding llama_parse_mode 
-                os.environ["LLAMA_CLOUD_API_KEY"] = 'llx-rnSkOSSGdKz0Tbbpf21AQkHOJfSe3J36OiyNX7oL79hgjTaY'
+                os.environ["LLAMA_CLOUD_API_KEY"] = st.secrets['LLAMA_CLOUD_API_KEY']
                 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
                 from llama_parse import LlamaParse
@@ -492,7 +492,7 @@ class FileUploader:
                 # short_key = f"{os.path.basename(key)[:10]}...{os.path.basename(key)[-10:]}{file_extension}"
                 all_documents.append(value)
                 short_key_and_documents_for_selected_files[short_key] = value
-            
+
             ### Select Files
             st.markdown("🤌 File Selection")
             all_selected_files = sac.chip(

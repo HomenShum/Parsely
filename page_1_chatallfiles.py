@@ -39,6 +39,16 @@ from llama_index.retrievers import RecursiveRetriever
 from llama_index.query_engine import RetrieverQueryEngine
 from llama_index.postprocessor import SentenceTransformerRerank
 
+import shutil
+from llama_index import Document
+from llama_index.indices import VectaraIndex
+
+os.environ['VECTARA_API_KEY'] = 'zwt_BSY6BZDNszBvS4OIN3S1667IxZ2FntdvwWLY-A'
+os.environ['VECTARA_CORPUS_ID'] = 'ragathon'
+os.environ['VECTARA_CUSTOMER_ID'] = '86391301'
+
+# Create Vectara Index
+vectara_index = VectaraIndex()
 
 OpenAI.api_key = st.secrets["OPENAI_API_KEY"]
 
@@ -312,6 +322,11 @@ def chatallfiles_page():
     st.session_state["llama_parse_mode"] = llama_parse_mode
     ic(st.session_state["llama_parse_mode"])
 
+    ### Vectara Query Mode
+    vectara_query_mode = sac.switch(label='Vectara Query Mode', align='start', size='md')
+    st.session_state["vectara_query_mode"] = vectara_query_mode
+    ic(st.session_state["vectara_query_mode"])
+
     ### Reset Conversation
     if st.button("Reset Conversation"):
         st.session_state["main_conversation"] = []
@@ -359,6 +374,8 @@ def chatallfiles_page():
                                 for id, doc in document_obj.items():
                                     ic(doc)
                                     llama_index_node_documents.append(doc)  # No need to recreate Document(text=doc.text)
+                                    vectara_index.insert_file(metadata= {id: doc})
+
                                     try:
                                         parsed_doc = ast.literal_eval(doc.text)
                                         documents_referred.append(f"{parsed_doc['source_name']} index: {parsed_doc['index']}")
@@ -419,6 +436,12 @@ def chatallfiles_page():
                     user_question += f". Add on the Llama Parse Response Result: {str(response_2)}"
                     main_full_response_with_llama_parse = process_in_files_mode(user_question)
                     st.session_state.main_conversation.append({"role": "Assistant", "content": main_full_response_with_llama_parse})
+                if vectara_query_mode:
+                    query_engine = vectara_index.as_query_engine(similarity_top_k=5)
+                    vectara_response = query_engine.query(user_question)
+                    user_question += f". Add on the Vectara Query Response: {str(vectara_response)}"
+                    main_full_response_with_vectara = process_in_files_mode(user_question)
+                    st.session_state.main_conversation.append({"role": "Assistant", "content": main_full_response_with_vectara})
                 # encode decoded string to utf-8
                 # st.markdown("Assistant: ")
                 # st.markdown(main_full_response)
