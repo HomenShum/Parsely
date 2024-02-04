@@ -1,3 +1,6 @@
+import nest_asyncio
+nest_asyncio.apply()
+
 import streamlit as st
 import streamlit_antd_components as sac
 import os
