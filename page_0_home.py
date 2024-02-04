@@ -131,7 +131,7 @@ def home_page():
     third_col1, third_col2, third_col3 = st.columns(3)
     with third_col1:
         st.markdown("### Example 1: OCR Text Extraction")
-        imgocrtoolv1_video_file = open('assets\\videos\\imgocrtoolv1.mp4', 'rb')
+        imgocrtoolv1_video_file = open('assets/videos/imgocrtoolv1.mp4', 'rb')
         imgocrtoolv1_video_bytes = imgocrtoolv1_video_file.read()
         st.video(imgocrtoolv1_video_bytes)
         st.info("This is a video of the OCR Text Extraction tool in action. It is a tool that allows you to extract text from images, PDFs, and Excel files. It also allows you to extract information from receipt or business cards onto an organized excel document.")
