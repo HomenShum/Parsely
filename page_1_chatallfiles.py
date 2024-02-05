@@ -190,7 +190,7 @@ def chatallfiles_page():
             }
             User Question: Quote the user's question, no changes.
             Key Words: Summarize the main topics that the answer covers with Keywords.
-            Response: Provide a summary of the answer.
+            Response: Provide answer, focus on the quantitative and qualitative aspects of the answer.
             Source of Evidence: Quote the most relevant part of the search result that answers the user's question.
         """
 
