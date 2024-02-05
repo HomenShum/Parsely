@@ -321,7 +321,7 @@ def chatallfiles_page():
         st.session_state["main_conversation_memory"].append("")
 
     ### Llama_Parse Mode
-    llama_parse_mode = sac.switch(label='Llama_Parse Mode', align='start', size='md')
+    llama_parse_mode = sac.switch(label='Llama_Parse Mode (Only Indexes File if On before Uploadfile)', align='start', size='md')
     st.session_state["llama_parse_mode"] = llama_parse_mode
     ic(st.session_state["llama_parse_mode"])
 
