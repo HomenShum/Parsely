@@ -30,7 +30,7 @@ SUPPORTED_EXTENSIONS = [
 ]
 
 # Patch the OpenAI client with Instructor
-aclient = instructor.apatch(AsyncOpenAI(api_key = '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'))
+aclient = instructor.apatch(AsyncOpenAI(api_key = st.secrets["OPENAI_API_KEY"]))
 
 # Define Pydantic model for response validation
 class DocumentInfo(BaseModel):
