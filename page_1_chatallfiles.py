@@ -377,7 +377,8 @@ def chatallfiles_page():
                                 for id, doc in document_obj.items():
                                     ic(doc)
                                     llama_index_node_documents.append(doc)  # No need to recreate Document(text=doc.text)
-                                    vectara_index.insert_file(metadata= {id: doc})
+                                    if vectara_query_mode:
+                                        vectara_index.insert_file(file_path= "", metadata= {id: doc})
 
                                     try:
                                         parsed_doc = ast.literal_eval(doc.text)
