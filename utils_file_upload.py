@@ -444,6 +444,7 @@ class FileUploader:
                     st.session_state['llama_index_node_documents'][source_name] = {}
                 st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
 
+
             # Process and store nodes for Excel files based on the 'record' key structure
             for key, value in st.session_state['processed_excel_files_metadata'].items():
                 record = value.get('record', {})  # Access the single 'record' dictionary directly
@@ -451,18 +452,22 @@ class FileUploader:
                 joint_text = '. '.join(record_texts)
                 index = 0  # Set the index to 0 for Excel files
 
-                #    st.session_state['llama_index_node_documents'][key][index] = Document(text=joint_text)
-                # KeyError: "Cafe_Corner_-_chat history_['Action Items_ Person Name', 'Summary']20240118_153153.xlsx_Sheet1_row_0"
+                # Create a dictionary similar to `jointed_text_for_node`
+                jointed_text_for_node = {
+                    'hashtags': value.get('hashtags', ''),
+                    'hypothetical_questions': value.get('hypothetical_questions', []),
+                    'index': index,
+                    'source_name': key.split('_row_')[0],
+                    'summary': joint_text,
+                    'text_chunk': joint_text,
+                    'title': value.get('title', '')
+                }
 
                 parsed_file_name = key.split('_row_')[0]
                 if parsed_file_name not in st.session_state['llama_index_node_documents']:
                     st.session_state['llama_index_node_documents'][parsed_file_name] = {}
 
-                st.session_state['llama_index_node_documents'][parsed_file_name][index] = Document(text=joint_text)
-                                
-                # # Check if the unique key already exists to avoid overwriting
-                # if key not in st.session_state['llama_index_node_documents']:
-                #     st.session_state['llama_index_node_documents'][key][index] = Document(text=joint_text)
+                st.session_state['llama_index_node_documents'][parsed_file_name][index] = Document(text=str(jointed_text_for_node))
 
                 index += 1  # Increment the index for the next record
 
