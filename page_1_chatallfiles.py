@@ -1,6 +1,3 @@
-import nest_asyncio
-nest_asyncio.apply()
-
 import streamlit as st
 import streamlit_antd_components as sac
 import os
@@ -153,7 +150,7 @@ def chatallfiles_page():
         
         for response in responses:
             if response.choices[0].delta.content:
-                main_full_response += str(response.choices[0].delta.content).encode('utf-8').decode('utf-8')
+                main_full_response += str(response.choices[0].delta.content).encode('utf-8').decode('utf-8').replace('$', '\$')
                 message_placeholder.markdown(f"**One Time Response**: {main_full_response}")
         st.markdown("---")
         return main_full_response
@@ -252,7 +249,7 @@ def chatallfiles_page():
         for response in responses:
             # if not None
             if response.choices[0].delta.content:
-                user_needs += str(response.choices[0].delta.content)
+                user_needs += str(response.choices[0].delta.content).replace('$', '\$')
                 first_response_message_placeholder.markdown(f"**User Needs**: {user_needs}")
         st.markdown("---")
         st.session_state.main_conversation.append({"role": "Assistant", "content": f"""**User Needs**: 
@@ -268,7 +265,7 @@ def chatallfiles_page():
             search_files_output_data_list = loop.run_until_complete(files_bm25_search(query=user_needs))
             ##### Dense: Cohere Rerank #####
             co = cohere.Client(st.secrets["COHERE_API_KEY"])
-            rerank_search_files_output_data_list = [{'text': str({"result": result})} for result in search_files_output_data_list]
+            rerank_search_files_output_data_list = [{'text': str({"result": result}).replace('$', '\$')} for result in search_files_output_data_list]
             rerank_search_files_output_data_list_results = co.rerank(model="rerank-english-v2.0",
                                     query=user_needs,
                                     documents=rerank_search_files_output_data_list,
@@ -297,7 +294,7 @@ def chatallfiles_page():
         for response in responses:
             # if not None
             if response.choices[0].delta.content:
-                final_response += str(response.choices[0].delta.content).encode('utf-8').decode('utf-8')
+                final_response += str(response.choices[0].delta.content).encode('utf-8').decode('utf-8').replace('$', '\$')
                 second_response_message_placeholder.markdown(f"**Final Response**: {final_response}")
         st.markdown("---")
         return final_response
@@ -381,10 +378,12 @@ def chatallfiles_page():
                                         vectara_index.insert_file(file_path= "", metadata= {id: doc})
 
                                     try:
+                                        ic(doc)
                                         parsed_doc = ast.literal_eval(doc.text)
                                         documents_referred.append(f"{parsed_doc['source_name']} index: {parsed_doc['index']}")
                                     except ValueError as e:
                                         print(f"Error parsing document text: {e}")
+                                        
                             else:
                                 # just use the document_obj 
                                 llama_index_node_documents.append(document_obj)
