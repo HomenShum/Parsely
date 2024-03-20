@@ -5,15 +5,19 @@ from utils_file_upload import FileUploader
 from utils_parsely_core import process_in_default_mode
 from icecream import ic
 
-from llama_index import (
-SimpleDirectoryReader,
-ServiceContext,
+
+from llama_index.core import (
+    SimpleDirectoryReader,
+    ServiceContext,
+    StorageContext,
+    VectorStoreIndex,
+    load_index_from_storage,
 )
-from llama_index.retrievers import BM25Retriever
-from llama_index.llms import OpenAI
+from llama_index.retrievers.bm25 import BM25Retriever
+from llama_index.core.indices.vector_store.retrievers.retriever import VectorIndexRetriever
 import pandas as pd
-from llama_index import Document
-from llama_index.embeddings import OptimumEmbedding
+from llama_index.core import Document
+from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
 
 import streamlit as st
 import json
