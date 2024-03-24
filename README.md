@@ -1,4 +1,17 @@
-﻿# rag-a-thon
+## Parsely Business Model 3.23.24
+# If you are an Individual/Small Teams that are looking for the following services:
+1. You have access to all of the exclusive features for $50 per month + token costs given your API key, catered to "RAG over all your uploaded documents", "Excel Tools", "Live Transcriptions and Insights", "Recommendation Bot Deployment", "Phone-Call Booking Agent via Retell.AI" and more below 🤖
+2. You have opportunity to pay an additional $500 per month for a consulting session on a project of your choice (Limited to 1 hours per session, 5 sessions max)
+3. You have opportunity to pay an additional $1500 for a draft 1 working prototype/demo in 1 month, your choices of LLM RAG Tool (ie. such as a feature to automate your database/excel to post automatically)
+4. With the publication of your idea turned to prototype, and with > 200 likes, your project will be suitable for a profit sharing program. (Ironing out details)
+
+# $20 Subscription:
+1. You have full access to the top three tools: "RAG over all your uploaded documents", "Excel Tools", and "Live Transcriptions and Insights", you can also experiment with the "Recommendation Bot Deployment", "Phone-Call Booking Agent via Retell.AI" on playground, deployment costs $50 per model/pipeline. Requires your OpenAI API key for token costs, rate limit and speed is based on your API Key Tiering.
+
+# Free Tier:
+1. You have limited access to top three tools: "RAG over all your uploaded documents", "Excel Tools", and "Live Transcriptions and Insights". Requires your OpenAI API key for token costs, rate limit and speed is based on your API Key Tiering.
+
+# rag-a-thon with Llama-Index
 
 2.6.24 Update:
 
