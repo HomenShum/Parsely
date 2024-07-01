@@ -291,7 +291,7 @@ def chatallfiles_page():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            #print("Searching in FILES")
+            print(f"Searching in FILES")
             search_files_output_data_list = loop.run_until_complete(files_bm25_search(query=user_needs))
             ##### Dense: Cohere Rerank #####
             co = cohere.Client(st.secrets["COHERE_API_KEY"])
@@ -386,11 +386,11 @@ def chatallfiles_page():
 
         with st.chat_message("Assistant"):
             if not st.session_state['selected_files']:
-                #print("No files selected, chat in default mode")
+                print(f"No files selected, chat in default mode")
                 default_response_with_custom_prompt = process_in_default_mode(user_question)
                 st.session_state.main_conversation.append({"role": "Assistant", "content": default_response_with_custom_prompt})
             else:
-                #print("Files selected, chat in files retrieval mode")
+                print(f"Files selected, chat in files retrieval mode")
                 for _ in range(3):  # Retry up to 3 times
                     try:
                         llama_index_node_documents = []
