@@ -178,7 +178,7 @@ def excelclassification_tool():
         return unmasked_data
 
 ########################################################################################
-    st.set_page_config(layout="wide")
+    # st.set_page_config(layout="wide")
 
     from docx import Document
     import pandas as pd
@@ -187,7 +187,7 @@ def excelclassification_tool():
     import os
     from bs4 import BeautifulSoup
     import re
-    from unstructured.partition.auto import partition
+    # from unstructured.partition.auto import partition
     import tempfile
     import aiohttp
     import asyncio
@@ -207,39 +207,39 @@ def excelclassification_tool():
 
 
 
-    def read_docx_pages(docx_file):
-        # Save the UploadedFile to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
-            # Assuming docx_file is a file-like object; if not, adjust accordingly
-            tmp.write(docx_file.read())
-            tmp_path = tmp.name
+    # def read_docx_pages(docx_file):
+    #     # Save the UploadedFile to a temporary file
+    #     with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
+    #         # Assuming docx_file is a file-like object; if not, adjust accordingly
+    #         tmp.write(docx_file.read())
+    #         tmp_path = tmp.name
 
-        # Use the temporary file path with Document
-        doc = Document(tmp_path)
-        full_text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+    #     # Use the temporary file path with Document
+    #     doc = Document(tmp_path)
+    #     full_text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
         
-        if is_html(full_text):
-            pages = []
-            for paragraph in doc.paragraphs:
-                if paragraph.text.strip():  # Check if paragraph is not just whitespace
-                    soup = BeautifulSoup(paragraph.text, 'html.parser')
-                    cleaned_text = soup.get_text().strip()
-                    if cleaned_text:  # Filter out empty rows
-                        pages.append(cleaned_text)
-        else:
-            # Now, use the path of the temporary file with partition
-            elements = partition(tmp_path)
-            pages = []
+    #     if is_html(full_text):
+    #         pages = []
+    #         for paragraph in doc.paragraphs:
+    #             if paragraph.text.strip():  # Check if paragraph is not just whitespace
+    #                 soup = BeautifulSoup(paragraph.text, 'html.parser')
+    #                 cleaned_text = soup.get_text().strip()
+    #                 if cleaned_text:  # Filter out empty rows
+    #                     pages.append(cleaned_text)
+    #     else:
+    #         # Now, use the path of the temporary file with partition
+    #         elements = partition(tmp_path)
+    #         pages = []
 
-            for element in elements:
-                text = str(element).strip()
-                if text:  # Filter out empty rows
-                    pages.append(text)
+    #         for element in elements:
+    #             text = str(element).strip()
+    #             if text:  # Filter out empty rows
+    #                 pages.append(text)
 
-        # Optionally, delete the temporary file if no longer needed
-        os.remove(tmp_path)
+    #     # Optionally, delete the temporary file if no longer needed
+    #     os.remove(tmp_path)
 
-        return pages
+    #     return pages
 
 
     # Streamlit UI for uploading and downloading
