@@ -508,7 +508,7 @@ def product_recommendation_builder():
             #summary
             st.session_state.summary.append(summarize_all_messages(prompt))
 
-    print("\ndebug prompt: ", prompt, "\n")
+    # print("\ndebug prompt: ", prompt, "\n")
 
     with st.expander("Auto Part Details 3"):
         
