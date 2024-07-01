@@ -386,11 +386,11 @@ def chatallfiles_page():
 
         with st.chat_message("Assistant"):
             if not st.session_state['selected_files']:
-                print(f"No files selected, chat in default mode")
+                # print(f"No files selected, chat in default mode")
                 default_response_with_custom_prompt = process_in_default_mode(user_question)
                 st.session_state.main_conversation.append({"role": "Assistant", "content": default_response_with_custom_prompt})
             else:
-                print(f"Files selected, chat in files retrieval mode")
+                # print(f"Files selected, chat in files retrieval mode")
                 for _ in range(3):  # Retry up to 3 times
                     try:
                         llama_index_node_documents = []
