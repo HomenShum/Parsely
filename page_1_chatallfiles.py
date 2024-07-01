@@ -198,7 +198,7 @@ def chatallfiles_page():
             }
 
             output_data.append(output)
-        ic(output_data)
+        # ic(output_data)
         return output_data
 
     api_key = st.secrets["openai_api_key"]
@@ -255,7 +255,7 @@ def chatallfiles_page():
             for response in responses:
                 response_json = await response.json()
                 output.append(response_json['choices'][0]['message']['content'])                              
-            ic(output)
+            # ic(output)
             return output
                 
 
@@ -306,7 +306,7 @@ def chatallfiles_page():
         finally:
             loop.close()
 
-        ic(main_full_response)
+        # ic(main_full_response)
 
         # Final Response with GPT-4-0125-Preview
 
@@ -337,7 +337,7 @@ def chatallfiles_page():
     uploader = FileUploader(SUPPORTED_EXTENSIONS)
     uploader.upload_files()
 
-    # ic(st.session_state['selected_files'])
+    # # ic(st.session_state['selected_files'])
 
     ### Conversation Memory and Summary
     if "main_conversation" not in st.session_state:
@@ -350,12 +350,12 @@ def chatallfiles_page():
     ### Llama_Parse Mode
     llama_parse_mode = sac.switch(label='Llama_Parse Mode (Only Indexes File if On before Uploadfile)', align='start', size='md')
     st.session_state["llama_parse_mode"] = llama_parse_mode
-    # ic(st.session_state["llama_parse_mode"])
+    # # ic(st.session_state["llama_parse_mode"])
 
     ### Vectara Query Mode
     vectara_query_mode = sac.switch(label='Vectara Query Mode', align='start', size='md')
     st.session_state["vectara_query_mode"] = vectara_query_mode
-    # ic(st.session_state["vectara_query_mode"])
+    # # ic(st.session_state["vectara_query_mode"])
 
     ### Reset Conversation
     if st.button("Reset Conversation"):
@@ -396,19 +396,19 @@ def chatallfiles_page():
                         llama_index_node_documents = []
                         documents_referred = []
                         # page_1_st_session_state_selected_files = st.session_state['selected_files']
-                        # ic(page_1_st_session_state_selected_files)
+                        # # ic(page_1_st_session_state_selected_files)
                         for document_obj in st.session_state['selected_files']:
                             # Assuming 'selected_files' is directly storing Document objects
                             # if document_obj has items
                             if isinstance(document_obj, dict):
                                 for id, doc in document_obj.items():
-                                    ic(doc)
+                                    # ic(doc)
                                     llama_index_node_documents.append(doc)  # No need to recreate Document(text=doc.text)
                                     if vectara_query_mode:
                                         vectara_index.insert_file(file_path= "", metadata= {id: doc})
 
                                     try:
-                                        ic(doc)
+                                        # ic(doc)
                                         parsed_doc = ast.literal_eval(doc.text)
                                         documents_referred.append(f"{parsed_doc['source_name']} index: {parsed_doc['index']}")
                                     except ValueError as e:
@@ -422,7 +422,7 @@ def chatallfiles_page():
                                 except ValueError as e:
                                     print(f"Error parsing document text: {e}")
                                     
-                        ic(documents_referred)
+                        # ic(documents_referred)
                         service_context = ServiceContext.from_defaults(embed_model=embed_model)
                         nodes = service_context.node_parser.get_nodes_from_documents(llama_index_node_documents)
                         similarity_top_k_value = len(llama_index_node_documents) // 2 // 2
@@ -463,7 +463,7 @@ def chatallfiles_page():
                     reranker = SentenceTransformerRerank(top_n=5, model="BAAI/bge-reranker-large")
                     recursive_query_engine = RetrieverQueryEngine.from_args(retriever, node_postprocessors=[reranker], service_context=ctx)                                            
                     response_2 = recursive_query_engine.query(user_question)
-                    ic(response_2)
+                    # ic(response_2)
                     # st.session_state.main_conversation.append({"role": "Assistant", "content": "**Llama Parse Result: \n**"+str(response_2)})
                     user_question += f". Add on the Llama Parse Response Result: {str(response_2)}"
                     main_full_response_with_llama_parse = process_in_files_mode(user_question)
@@ -478,4 +478,4 @@ def chatallfiles_page():
                 # st.markdown("Assistant: ")
                 # st.markdown(main_full_response)
 
-# ic(st.session_state['selected_files'])
+# # ic(st.session_state['selected_files'])
