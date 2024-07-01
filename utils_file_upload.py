@@ -580,8 +580,8 @@ class FileUploader:
                 selected_documents = [short_key_and_documents_for_selected_files[sk] for sk in selected_files]
                 st.session_state['selected_files'] = selected_documents
 
-            utils_file_upload_st_session_state_selected_files = st.session_state['selected_files']
-            ic(utils_file_upload_st_session_state_selected_files)
+            # utils_file_upload_st_session_state_selected_files = st.session_state['selected_files']
+            # ic(utils_file_upload_st_session_state_selected_files)
 
             st.info("Select All Files to index all documents. Unselect All Files & Select individual files to index only those files.")
 
