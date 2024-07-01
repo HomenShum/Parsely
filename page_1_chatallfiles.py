@@ -291,7 +291,7 @@ def chatallfiles_page():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            print(f"Searching in FILES")
+            # st.toast(f"Searching in FILES")
             search_files_output_data_list = loop.run_until_complete(files_bm25_search(query=user_needs))
             ##### Dense: Cohere Rerank #####
             co = cohere.Client(st.secrets["COHERE_API_KEY"])
@@ -331,7 +331,7 @@ def chatallfiles_page():
 
     ### Title and Description
     st.title("💬 Chat for All Files")
-    st.write("🌱 Hi! I’m Parsely and I’m here to assist your document analysis needs. Type below to get started.")
+    st.toast("🌱 Hi! I’m Parsely and I’m here to assist your document analysis needs. Type below to get started.")
 
     ### FileUploader from utils.py
     uploader = FileUploader(SUPPORTED_EXTENSIONS)
@@ -386,11 +386,11 @@ def chatallfiles_page():
 
         with st.chat_message("Assistant"):
             if not st.session_state['selected_files']:
-                # print(f"No files selected, chat in default mode")
+                # st.toast(f"No files selected, chat in default mode")
                 default_response_with_custom_prompt = process_in_default_mode(user_question)
                 st.session_state.main_conversation.append({"role": "Assistant", "content": default_response_with_custom_prompt})
             else:
-                # print(f"Files selected, chat in files retrieval mode")
+                # st.toast(f"Files selected, chat in files retrieval mode")
                 for _ in range(3):  # Retry up to 3 times
                     try:
                         llama_index_node_documents = []
@@ -412,7 +412,7 @@ def chatallfiles_page():
                                         parsed_doc = ast.literal_eval(doc.text)
                                         documents_referred.append(f"{parsed_doc['source_name']} index: {parsed_doc['index']}")
                                     except ValueError as e:
-                                        print(f"Error parsing document text: {e}")
+                                        st.toast(f"Error parsing document text: {e}")
                             else:
                                 # just use the document_obj 
                                 llama_index_node_documents.append(document_obj)
@@ -420,7 +420,7 @@ def chatallfiles_page():
                                     parsed_doc = ast.literal_eval(document_obj.text)
                                     documents_referred.append(f"{parsed_doc['source_name']} index: {parsed_doc['index']}")
                                 except ValueError as e:
-                                    print(f"Error parsing document text: {e}")
+                                    st.toast(f"Error parsing document text: {e}")
                                     
                         # ic(documents_referred)
                         service_context = ServiceContext.from_defaults(embed_model=embed_model)
