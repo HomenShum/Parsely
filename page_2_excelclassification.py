@@ -409,11 +409,11 @@ def excelclassification_tool():
             st.write(f"Displaying content of {uploaded_file.name}:")
             st.dataframe(df)
 
-    st.divider()
+    # st.divider()
 
-    st.title("Excel/CSV Classification Tool")
+    # st.title("Excel/CSV Classification Tool")
 
-    uploaded_xlsx_csv_files = st.file_uploader("Upload an Excel or CSV file", type=["csv", "xlsx"], accept_multiple_files=True)
+    # uploaded_xlsx_csv_files = st.file_uploader("Upload an Excel or CSV file", type=["csv", "xlsx"], accept_multiple_files=True)
 
     st.divider()
 
@@ -434,12 +434,14 @@ def excelclassification_tool():
 
 
     # Check if a file has been uploaded
-    if uploaded_xlsx_csv_files and ('files_processed' not in st.session_state or len(uploaded_xlsx_csv_files) != len(st.session_state['uploaded_dfs'])):
+    # if uploaded_xlsx_csv_files and ('files_processed' not in st.session_state or len(uploaded_xlsx_csv_files) != len(st.session_state['uploaded_dfs'])):
+    if uploaded_xlsx_csv_parquet_files and ('files_processed' not in st.session_state or len(uploaded_xlsx_csv_parquet_files) != len(st.session_state['uploaded_dfs'])):
         # Store the list of sheet data in Streamlit's session state
         st.session_state['uploaded_dfs'] = []
 
         # Iterate over each uploaded file
-        for user_file in uploaded_xlsx_csv_files:
+        # for user_file in uploaded_xlsx_csv_files:
+        for user_file in uploaded_xlsx_csv_parquet_files:
             # Attempt to read the file into a DataFrame
             try:
                 # Determine the file type and read accordingly
