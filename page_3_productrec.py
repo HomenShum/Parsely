@@ -1,37 +1,30 @@
-import logging
+import os
 import sys
+import json
+import ast
+import re
+import time
+import logging
+from typing import Any, List
+import numpy as np
+import pandas as pd
+import streamlit as st
+import cohere
 
+# Configure logging
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logging.getLogger().handlers = []
 logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
 
-from llama_index import (
-    SimpleDirectoryReader,
+# Import llama_index modules
+from llama_index.core import (
     ServiceContext,
-    StorageContext,
-    VectorStoreIndex,
-    load_index_from_storage,
+    Document,
 )
-from llama_index.retrievers import BM25Retriever
-from llama_index.indices.vector_store.retrievers.retriever import VectorIndexRetriever
-from llama_index.llms import OpenAI, HuggingFaceLLM
-from llama_index import Document, VectorStoreIndex
-from llama_index.storage.docstore import SimpleDocumentStore
-from llama_index.vector_stores import SimpleVectorStore
-from llama_index.storage.index_store import SimpleIndexStore
-from llama_index.embeddings import OptimumEmbedding
+from llama_index.retrievers.bm25 import BM25Retriever
+from llama_index.llms.openai import OpenAI
+from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
 
-import pandas as pd
-import numpy as np
-import streamlit as st
-import time 
-import json
-import re
-import ast
-import cohere
-import os
-
-from openai import OpenAI as official_OpenAI
 
 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
@@ -486,49 +479,6 @@ def product_recommendation_builder():
             st.session_state.summary.append(summarize_all_messages(prompt))
 
     print("\ndebug prompt: ", prompt, "\n")
-
-
-    def parse_and_format_part_details(details):
-        if not details:
-            return "No auto part details available."
-
-        formatted_details = ""
-        for detail in details:
-            try:
-                # Debugging: Print the type and value of 'detail'
-                st.write("Type of detail:", type(detail))
-                st.write("Value of detail:", detail)
-
-                # Ensure 'detail' is a dictionary and has the key 'part_details'
-                if isinstance(detail, dict) and 'part_details' in detail:
-                    part_detail_str = detail['part_details']
-
-                    # Debugging: Print the type and value of 'part_detail_str'
-                    st.write("Type of part_detail_str:", type(part_detail_str))
-                    st.write("Value of part_detail_str:", part_detail_str)
-
-                    # Check if 'part_detail_str' is a string and convert it to a dictionary
-                    if isinstance(part_detail_str, str):
-                        part_detail = json.loads(part_detail_str.replace("'", "\""))
-                    else:
-                        part_detail = part_detail_str  # Assuming it's already a dictionary
-
-                    # Extracting information from the parsed data
-                    result = part_detail.get('result', {})
-                    confidence_score = part_detail.get('confidence_score', 0)
-                    index = detail.get('index', 0)
-                    relevance_score = detail.get('relevance_score', 0)
-
-                    # Creating a formatted string for each part
-                    formatted_detail = f"Index: {index}\nRelevance Score: {relevance_score:.2f}\nConfidence Score: {confidence_score:.2f}\nDetails: {result}\n\n"
-                    formatted_details += formatted_detail
-                else:
-                    st.write("Detail is not in expected format (dictionary with 'part_details' key)")
-
-            except (json.JSONDecodeError, TypeError) as e:
-                st.write(f"Error parsing details: {e}")
-
-        return formatted_details
 
     with st.expander("Auto Part Details 3"):
         

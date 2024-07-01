@@ -8,7 +8,7 @@ from pathlib import Path
 # Add the parent directory to the PYTHONPATH
 sys.path.append(str(Path(__file__).parent.parent))
 import streamlit as st
-from utils import UserSession, redirect_pages
+# from utils_others import UserSession, redirect_pages
 from streamlit_extras.buy_me_a_coffee import button as buy_me_a_coffee_button
 from streamlit_extras.switch_page_button import switch_page
 from streamlit_card import card
@@ -17,6 +17,7 @@ import base64
 from icecream import ic
 from page_0_home import home_page
 from page_1_chatallfiles import chatallfiles_page
+from page_2_excelclassification import excelclassification_tool
 from page_3_productrec import product_recommendation_builder
 
 ##### Global Settings #########################################################################################
@@ -66,7 +67,8 @@ if menu == "Chat for All Files":
     chatallfiles_page()
 
 if menu == "Excel Data Classification":
-    st.write("Excel Data Classification")
+    # st.write("Excel Data Classification")
+    excelclassification_tool()
 
 if menu == "Product Rec Builder":
     # st.write("Product Rec Builder")

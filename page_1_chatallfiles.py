@@ -1,51 +1,77 @@
-import streamlit as st
-import streamlit_antd_components as sac
 import os
-from utils_file_upload import FileUploader
-from utils_parsely_core import process_in_default_mode
-from icecream import ic
-
-
-from llama_index.core import (
-    SimpleDirectoryReader,
-    ServiceContext,
-    StorageContext,
-    VectorStoreIndex,
-    load_index_from_storage,
-)
-from llama_index.retrievers.bm25 import BM25Retriever
-from llama_index.core.indices.vector_store.retrievers.retriever import VectorIndexRetriever
-import pandas as pd
-from llama_index.core import Document
-from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
-
-import streamlit as st
+import sys
 import json
 import ast
 import re
 import time
-
+import logging
+import shutil
 from typing import Any, List
-import os
+import asyncio
+import aiohttp
+
+import pandas as pd
+import streamlit as st
+import streamlit_antd_components as sac
 from streamlit_searchbox import st_searchbox
 
 import cohere
 import openai
-import asyncio
-import aiohttp
+from icecream import ic
+
+from utils_file_upload import FileUploader
+from utils_parsely_core import process_in_default_mode
+
+from llama_index.core import (
+    SimpleDirectoryReader,
+    ServiceContext,
+    Document,
+    VectorStoreIndex,
+    Settings,
+)
+from llama_index.retrievers.bm25 import BM25Retriever
+from llama_index.llms.openai import OpenAI
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.llms.azure_openai import AzureOpenAI
+from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
+from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
+from llama_index.core.retrievers import RecursiveRetriever
+from llama_index.core.query_engine import RetrieverQueryEngine
+from llama_index.core.postprocessor import SentenceTransformerRerank
+from llama_index.core.node_parser import MarkdownElementNodeParser
+from llama_index.indices.managed.vectara import VectaraIndex
 
 from llama_parse import LlamaParse
-from llama_index.node_parser import MarkdownElementNodeParser
-from llama_index.llms import OpenAI
-from llama_index import VectorStoreIndex, ServiceContext
-from llama_index.embeddings import OpenAIEmbedding
-from llama_index.retrievers import RecursiveRetriever
-from llama_index.query_engine import RetrieverQueryEngine
-from llama_index.postprocessor import SentenceTransformerRerank
 
-import shutil
-from llama_index import Document
-from llama_index.indices import VectaraIndex
+
+logging.basicConfig(
+    stream=sys.stdout, level=logging.INFO
+)  # logging.DEBUG for more verbose output
+logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
+
+azure_endpoint=st.secrets["AOAIEndpoint"]
+api_key=st.secrets["AOAIKey"]
+api_version="2024-02-15-preview"
+
+llm = AzureOpenAI(
+    model="gpt-4o",
+    deployment_name="gpt-4o",
+    api_key=api_key,
+    azure_endpoint=azure_endpoint,
+    api_version=api_version,
+)
+
+# You need to deploy your own embedding model as well as your own chat completion model
+embed_model = AzureOpenAIEmbedding(
+    model="text-embedding-3-small",
+    deployment_name="text-embedding-3-small",
+    api_key=api_key,
+    azure_endpoint=azure_endpoint,
+    api_version=api_version,
+)
+
+Settings.llm = llm
+Settings.embed_model = embed_model
 
 os.environ['VECTARA_API_KEY'] = 'zwt_BSY6BZDNszBvS4OIN3S1667IxZ2FntdvwWLY-A'
 os.environ['VECTARA_CORPUS_ID'] = 'ragathon'
@@ -63,12 +89,12 @@ SUPPORTED_EXTENSIONS = [
 ]
 
 
-if not os.path.exists("./bge_onnx"):
-    OptimumEmbedding.create_and_save_optimum_model(
-        "BAAI/bge-base-en-v1.5", "./bge_onnx"
-    )
+# if not os.path.exists("./bge_onnx"):
+#     OptimumEmbedding.create_and_save_optimum_model(
+#         "BAAI/bge-base-en-v1.5", "./bge_onnx"
+#     )
 
-embed_model = OptimumEmbedding(folder_name="./bge_onnx", embed_batch_size=100)
+# embed_model = OptimumEmbedding(folder_name="./bge_onnx", embed_batch_size=100)
 
 
 def chatallfiles_page():
