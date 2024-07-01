@@ -177,7 +177,7 @@ async def process_image_file(files):
                 tasks.append(post_image_upload(session, url, temp_file.name, sem))
         responses = await asyncio.gather(*tasks)
         # ic(responses)
-        print(type(responses))
+        # print(type(responses))
         for i, response_list in enumerate(responses):
             # store in session state
             # ic(response_list)
