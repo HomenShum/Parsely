@@ -418,7 +418,7 @@ def product_recommendation_builder():
         st.divider()
 
         st.session_state.count = st.number_input('Insert desired number of retrieval', value=3, max_value=10, min_value=1, step=1)
-        print("\n\nst.session_state.count:", st.session_state.count)
+        # print("\n\nst.session_state.count:", st.session_state.count)
         
         st.divider()
 
@@ -463,7 +463,7 @@ def product_recommendation_builder():
         print ("\nauto_part_criteria_response:\n", auto_part_criteria_response)
 
 
-        print("\nCount sanity check:\n", st.session_state.count)
+        # print("\nCount sanity check:\n", st.session_state.count)
         sparse_dense_retrieval_response = sparse_dense_retrieval(auto_part_criteria_response, st.session_state.count)
         if "error" in sparse_dense_retrieval_response:
             st.session_state.auto_part_details.append(f"Based on user input: {prompt}. No auto part found.")
