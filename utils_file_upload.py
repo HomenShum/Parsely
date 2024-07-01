@@ -218,7 +218,7 @@ async def process_csv_file(files):
         df = pd.read_csv(file)
         # Transform the DataFrame to a dictionary, where each key-value pair represents a row
         rows = df.to_dict('index')
-        sheet_data = [{'SheetName': '', 'Rows': rows, 'DataFrame': df}]  # Store the DataFrame in the session state
+        sheet_data = [{'SheetName': 'na', 'Rows': rows, 'DataFrame': df}]  # Store the DataFrame in the session state
 
         st.session_state['processed_csv_files_metadata'].append({
             'FileName': file.name,
@@ -313,9 +313,9 @@ class FileUploader:
         if 'processed_image_files_metadata' not in st.session_state:
             st.session_state['processed_image_files_metadata'] = {}
         if 'processed_excel_files_metadata' not in st.session_state:
-            st.session_state['processed_excel_files_metadata'] = []
+            st.session_state['processed_excel_files_metadata'] = {}
         if 'processed_csv_files_metadata' not in st.session_state:
-            st.session_state['processed_csv_files_metadata'] = []
+            st.session_state['processed_csv_files_metadata'] = {}
         if 'processed_other_files_metadata' not in st.session_state:
             st.session_state['processed_other_files_metadata'] = {}
             
@@ -336,13 +336,7 @@ class FileUploader:
                 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
                 from llama_parse import LlamaParse
-                from llama_index.core.node_parser import MarkdownElementNodeParser
-                from llama_index.llms.openai import OpenAI
-                from llama_index.core import VectorStoreIndex, ServiceContext
-                from llama_index.embeddings.openai import OpenAIEmbedding
-                from llama_index.core.retrievers import RecursiveRetriever
-                from llama_index.core.query_engine  import RetrieverQueryEngine
-                from llama_index.core.postprocessor  import SentenceTransformerRerank
+
                 # llama_parse_documents = LlamaParse(result_type="markdown").load_data()
                                     
                 for index, file in enumerate(uploaded_files, start=1):
@@ -353,11 +347,11 @@ class FileUploader:
                             st.session_state['uploaded_files']['pdf'] = {}
                         if file.name not in st.session_state['uploaded_files']['pdf']:
                             st.session_state['uploaded_files']['pdf'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
-                            # if st.session_state['llama_parse_mode'] == 'True':
-                            #     # Process the PDF file using LlamaParse
-                            #     llama_parse_documents = LlamaParse(result_type="markdown").load_data(file_path=file)
-                            #     # ic(llama_parse_documents)
-                            #     st.session_state['llama_parse_documents_list'].append(llama_parse_documents)
+                            if st.session_state['llama_parse_mode'] == 'True':
+                                # Process the PDF file using LlamaParse
+                                llama_parse_documents = LlamaParse(result_type="markdown").load_data(file_path=file)
+                                # ic(llama_parse_documents)
+                                st.session_state['llama_parse_documents_list'].append(llama_parse_documents)
                     elif file.name.endswith(".png") or file.name.endswith(".jpg"):
                         if 'img' not in st.session_state['uploaded_files']:
                             st.session_state['uploaded_files']['img'] = {}
@@ -369,9 +363,9 @@ class FileUploader:
                         if file.name not in st.session_state['uploaded_files']['excel']:
                             st.session_state['uploaded_files']['excel'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
                     elif file.name.endswith(".csv"):
-                        if 'csv' not in st.session_state['uploaded_files']:
+                        if 'excel' not in st.session_state['uploaded_files']:
                             st.session_state['uploaded_files']['csv'] = {}
-                        if file.name not in st.session_state['uploaded_files']['csv']:
+                        if file.name not in st.session_state['uploaded_files']['excel']:
                             st.session_state['uploaded_files']['csv'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
                     else:
                         if 'others' not in st.session_state['uploaded_files']:
@@ -529,14 +523,20 @@ class FileUploader:
 
             # Other files
             for key, value in st.session_state['processed_other_files_metadata'].items():
+                # source_name_with_index1 = key
+                
+                # hashtags = value['hashtags']
+                # hypothetical_questions = value['hypothetical_questions']
                 index = value['index']
                 source_name = value['source_name']
+                # summary = value['summary']
+                # text_chunk = value['text_chunk']
+                # title = value['title']
 
                 jointed_text_for_node = str(value)
-                if source_name not in st.session_state['llama_index_node_documents']:
-                    st.session_state['llama_index_node_documents'][source_name] = {}
-
-                st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
+                unique_key = f"{source_name}_{index}"
+                if unique_key not in st.session_state['llama_index_node_documents']:
+                    st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
 
             # Check the number of nodes stored and perhaps display a few for verification
             # ic(len(st.session_state['llama_index_node_documents']))
@@ -553,12 +553,12 @@ class FileUploader:
 
             ### Select Files
             st.markdown("🤌 File Selection")
-            # all_selected_files = sac.chip(
-            #     # the label should be "All Files"
-            #     items = [sac.ChipItem(label="All Files")],
-            #     radius='md',
-            #     multiple=True
-            # )                
+            all_selected_files = sac.chip(
+                # the label should be "All Files"
+                items = [sac.ChipItem(label="All Files")],
+                radius='md',
+                multiple=True
+            )                
             
             selected_files = sac.chip(
                 items = [
@@ -572,16 +572,19 @@ class FileUploader:
             st.write("📝 Selected files")
 
             # if All Files is selected, then st.session_state['selected_files'] = all_documents
-            if selected_files:
-                st.session_state['selected_files'] = [short_key_and_documents_for_selected_files[sk] for sk in selected_files]
-                st.write(f"Selected: {selected_files}")
-            else:
+            if "All Files" in all_selected_files:  # Assuming this checks if "All Files" was selected
                 st.session_state['selected_files'] = list(st.session_state['llama_index_node_documents'].values())
                 st.write("Selected: All Files")
 
+            if "All Files" not in all_selected_files:
+                selected_documents = [short_key_and_documents_for_selected_files[sk] for sk in selected_files]
+                st.session_state['selected_files'] = selected_documents
 
             utils_file_upload_st_session_state_selected_files = st.session_state['selected_files']
-            ic(len(utils_file_upload_st_session_state_selected_files))
+            ic(utils_file_upload_st_session_state_selected_files)
+
+            st.info("Select All Files to index all documents. Unselect All Files & Select individual files to index only those files.")
+
 
             return st.session_state['uploaded_files'], st.session_state['selected_files'], st.session_state['llama_parse_documents_list']
 
