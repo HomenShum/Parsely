@@ -1,16 +1,12 @@
 def product_recommendation_builder():
     import os
     import sys
-    import json
-    import ast
-    import re
-    import time
     import logging
+    import time
     from typing import Any, List
     import numpy as np
     import pandas as pd
     import streamlit as st
-    import cohere
 
     # Configure logging
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
@@ -22,26 +18,27 @@ def product_recommendation_builder():
         ServiceContext,
         Document,
         Settings,
+        VectorStoreIndex,
+        SimpleDirectoryReader,
+        QueryBundle,
     )
     from llama_index.retrievers.bm25 import BM25Retriever
     from llama_index.llms.openai import OpenAI
-    # from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
-
     from llama_index.llms.azure_openai import AzureOpenAI
     from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
-
+    from llama_index.core.postprocessor import LLMRerank
+    from llama_index.core.retrievers import VectorIndexRetriever
+    from IPython.display import HTML, display
+    
 
     os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
-
 
     if "count" not in st.session_state:
         st.session_state.count = 3
 
     @st.cache_data
     def sparse_dense_retrieval(query, count):
-
         ##### Sparse: Llama Index BM25 #####
-
         start = time.time()
 
         OpenAI.api_key = st.secrets["OPENAI_API_KEY"]
@@ -54,7 +51,7 @@ def product_recommendation_builder():
         search_results = df.to_dict(orient='records')
 
         formatted_results = []
-        
+
         for i, article in enumerate(search_results):
             formatted_article = {
                 "Number": i + 1,
@@ -80,28 +77,13 @@ def product_recommendation_builder():
         # Convert each record to a Document object for Llama Index
         documents = []
         for record in formatted_results:
-            # Create a string concatenating the text of interest for BM25 search
             text_for_bm25 = ''.join([str(value) for value in record])
-            # #print("\n\ntext_for_bm25:", text_for_bm25)
-
-            # Create a Document object with the concatenated text
             document = Document(text=text_for_bm25)
             documents.append(document)
 
-        # #print("len docs:", len(documents))
-
-
-        # if not os.path.exists("./bge_onnx"):
-        #     OptimumEmbedding.create_and_save_optimum_model(
-        #         "BAAI/bge-base-en-v1.5", "./bge_onnx"
-        # )
-
-        # embed_model = OptimumEmbedding(folder_name="./bge_onnx", embed_batch_size=100)
-
-
-        azure_endpoint=st.secrets["AOAIEndpoint"]
-        api_key=st.secrets["AOAIKey"]
-        api_version="2024-02-15-preview"
+        azure_endpoint = st.secrets["AOAIEndpoint"]
+        api_key = st.secrets["AOAIKey"]
+        api_version = "2024-02-15-preview"
 
         llm = AzureOpenAI(
             model="gpt-4o",
@@ -110,7 +92,6 @@ def product_recommendation_builder():
             azure_endpoint=azure_endpoint,
             api_version=api_version,
         )
-
 
         embed_model = AzureOpenAIEmbedding(
             model="text-embedding-3-small",
@@ -122,67 +103,33 @@ def product_recommendation_builder():
 
         Settings.llm = llm
         Settings.embed_model = embed_model
-        service_context = ServiceContext.from_defaults(embed_model = embed_model)
+        service_context = ServiceContext.from_defaults(embed_model=embed_model)
         nodes = service_context.node_parser.get_nodes_from_documents(documents)
 
-        # #print("\n Initializing BM25 retriever...")
         bm25retriever = BM25Retriever.from_defaults(nodes=nodes, similarity_top_k=15)
+        retrieved_nodes = bm25retriever.retrieve(query)
 
-        # #print("\n Retrieving documents...")
-        
-        nodes = bm25retriever.retrieve(query)
-        # #print("len nodes:", len(nodes))
+        logging.info(f"Output data before LLM rerank: {retrieved_nodes}")
 
-        output_data = []
+        ##### Dense: LLM Rerank #####
+        reranker = LLMRerank(
+            choice_batch_size=5,
+            top_n=count,
+        )
 
-        for node in nodes:
-            try:
-                result = node.text
-            except ValueError as e:
-                #print(f"Error converting to dictionary: {e}")
-                continue
-
-            confidence_score = node.score
-
-            # #print (f"Result: {result}")
-            # #print (f"Confidence score: {confidence_score}")
-
-            json = {"result": result, "confidence_score": confidence_score}
-            # add to output_data
-            output_data.append(json)
-
-        # show confidence scores
-        # #print (output_data)
-
-        ##### Dense: Cohere Rerank #####
-
-        co = cohere.Client(st.secrets["COHERE_API_KEY"])
-
-        # for each dict in payload, append the text to a list
-        rerank_documents = [{'text': str(doc)} for doc in output_data]
-
-        # Now call the Cohere rerank with the serializable list of dictionaries
-        results = co.rerank(model="rerank-english-v2.0",
-                            query=query,
-                            documents=rerank_documents,  # this should be a list of dicts now
-                            top_n=count)
-
-        # given results, generate formatted results
+        query_bundle = QueryBundle(query)
+        reranked_nodes = reranker.postprocess_nodes(retrieved_nodes, query_bundle)
 
         formatted_results = []
 
-        for result in results.results:
-            if result.document is None:
-                logging.error(f"Result document is None for index {result.index} with relevance score {result.relevance_score}")
-                continue
-
+        for node in reranked_nodes:
             formatted_results.append({
-                "part_details": result.document.get('text', 'No text available'),
-                "index": result.index,
-                "relevance_score": result.relevance_score
+                "part_details": node.node.get_text(),
+                "score": node.score,
             })
 
         return formatted_results
+
 
 
     from openai import OpenAI
@@ -516,7 +463,7 @@ def product_recommendation_builder():
 
     # #print("\ndebug prompt: ", prompt, "\n")
 
-    with st.expander("Auto Part Details 3"):
+    with st.expander("Auto Part Details Inside"):
         
         st.header("Auto Part Criteria")
         if not st.session_state.auto_part_criteria:
