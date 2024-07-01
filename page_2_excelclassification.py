@@ -1,5 +1,6 @@
 def excelclassification_tool():
     import asyncio
+    import logging
     import os
     import time
     from asyncio import Semaphore
@@ -21,6 +22,9 @@ def excelclassification_tool():
     import instructor
     from pydantic import BaseModel
 
+    # Configure logging
+    logging.basicConfig(level=logging.DEBUG)
+
     # Patch the OpenAI client with Instructor, 062824 Instructor Version Update
     # aclient = instructor.apatch(AsyncOpenAI(api_key = st.secrets["OPENAI_API_KEY"]))
     aclient = instructor.from_openai(openai.AsyncOpenAI(api_key = st.secrets["OPENAI_API_KEY"]))
@@ -39,7 +43,7 @@ def excelclassification_tool():
 
     # Asynchronous function to query data using OpenAI and validate with Pydantic
     sem = asyncio.Semaphore(1000)
-    retry_decorator = retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
+    retry_decorator = retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True)
 
     @retry_decorator
     async def rate_limited_company_classification_async(company_data: Dict[str, Any], sem: Semaphore, prompt: str) -> List[str]:
@@ -49,31 +53,34 @@ def excelclassification_tool():
             response_model = CompanyClassificationBool
         elif st.session_state['classification_choice'] == 'general_response':
             response_model = CompanyClassificationGeneral
-            
+
         model_choice = st.session_state['model_choice']
 
         async with sem:
-            model = await aclient.chat.completions.create(
-                model=model_choice,
-                response_model=response_model,
-                messages=[
-                    {"role": "system", "content": str(company_data)},
-                    {"role": "user", "content": prompt},
-                ],
-            max_retries=3,
-            )
-            print(f'Response Model: {response_model}')
-            print(f'Model Choice: {model_choice}')
-            print(f'Company Data: {str(company_data)}')
-            print(f'Prompt: {prompt}')        
-            print(f'Result: {model}')
-            if st.session_state['classification_choice'] == 'sector-tag':
-                return [model.SectorTag, model.QuickInfo]
-            elif st.session_state['classification_choice'] == 'yes-no-reasoning':
-                return [model.Result, model.Reason]
-            elif st.session_state['classification_choice'] == 'general_response':
-                return [model.Response]
-
+            try:
+                model = await aclient.chat.completions.create(
+                    model=model_choice,
+                    response_model=response_model,
+                    messages=[
+                        {"role": "system", "content": str(company_data)},
+                        {"role": "user", "content": prompt},
+                    ],
+                    max_retries=3,
+                )
+                logging.debug(f'Response Model: {response_model}')
+                logging.debug(f'Model Choice: {model_choice}')
+                logging.debug(f'Company Data: {str(company_data)}')
+                logging.debug(f'Prompt: {prompt}')        
+                logging.debug(f'Result: {model}')
+                if st.session_state['classification_choice'] == 'sector-tag':
+                    return [model.SectorTag, model.QuickInfo]
+                elif st.session_state['classification_choice'] == 'yes-no-reasoning':
+                    return [model.Result, model.Reason]
+                elif st.session_state['classification_choice'] == 'general_response':
+                    return [model.Response]
+            except Exception as e:
+                logging.error(f"Error during classification: {e}")
+                raise
 
     async def main_classification_async(df, prompt):
         # only use first column for now
@@ -84,7 +91,13 @@ def excelclassification_tool():
             df_dict_list = df['PII Masked Data'].to_dict('records')
 
         tasks = [rate_limited_company_classification_async(data, sem, prompt) for data in df_dict_list]
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Check for exceptions in results
+        for result in results:
+            if isinstance(result, Exception):
+                logging.error(f"Task resulted in an exception: {result}")
+                raise result
 
         # add new columns to the dataframe df
         if st.session_state['classification_choice'] == 'sector-tag':
@@ -96,6 +109,7 @@ def excelclassification_tool():
         df = pd.concat([st.session_state['new_df_to_be_processed'], results_df], axis=1)
 
         return df
+
 
     @retry_decorator
     async def rate_limited_query_main_generate_new_col_async(data: Dict[str, Any], sem: Semaphore, prompt: str) -> List[str]:
