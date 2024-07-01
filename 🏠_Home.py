@@ -52,7 +52,7 @@ with st.sidebar:
         ]),
     ], open_all=True)
 
-    ic(menu)
+    # ic(menu)
 
 if menu:
     # sac.alert(f"Redirect to {str(menu)} Page", color="success",banner=True, icon=True, closable=True)
