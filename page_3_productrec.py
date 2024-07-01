@@ -33,6 +33,7 @@ def product_recommendation_builder():
 
     os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
+
     if "count" not in st.session_state:
         st.session_state.count = 3
 
@@ -81,13 +82,13 @@ def product_recommendation_builder():
         for record in formatted_results:
             # Create a string concatenating the text of interest for BM25 search
             text_for_bm25 = ''.join([str(value) for value in record])
-            # print("\n\ntext_for_bm25:", text_for_bm25)
+            # #print("\n\ntext_for_bm25:", text_for_bm25)
 
             # Create a Document object with the concatenated text
             document = Document(text=text_for_bm25)
             documents.append(document)
 
-        # print("len docs:", len(documents))
+        # #print("len docs:", len(documents))
 
 
         # if not os.path.exists("./bge_onnx"):
@@ -124,13 +125,13 @@ def product_recommendation_builder():
         service_context = ServiceContext.from_defaults(embed_model = embed_model)
         nodes = service_context.node_parser.get_nodes_from_documents(documents)
 
-        # print("\n Initializing BM25 retriever...")
+        # #print("\n Initializing BM25 retriever...")
         bm25retriever = BM25Retriever.from_defaults(nodes=nodes, similarity_top_k=15)
 
-        # print("\n Retrieving documents...")
+        # #print("\n Retrieving documents...")
         
         nodes = bm25retriever.retrieve(query)
-        # print("len nodes:", len(nodes))
+        # #print("len nodes:", len(nodes))
 
         output_data = []
 
@@ -138,20 +139,20 @@ def product_recommendation_builder():
             try:
                 result = node.text
             except ValueError as e:
-                print(f"Error converting to dictionary: {e}")
+                #print(f"Error converting to dictionary: {e}")
                 continue
 
             confidence_score = node.score
 
-            # print (f"Result: {result}")
-            # print (f"Confidence score: {confidence_score}")
+            # #print (f"Result: {result}")
+            # #print (f"Confidence score: {confidence_score}")
 
             json = {"result": result, "confidence_score": confidence_score}
             # add to output_data
             output_data.append(json)
 
         # show confidence scores
-        # print (output_data)
+        # #print (output_data)
 
         ##### Dense: Cohere Rerank #####
 
@@ -168,16 +169,21 @@ def product_recommendation_builder():
 
         # given results, generate formatted results
 
-        formatted_results = [
-            {
-                "part_details": result.document['text'],
+        formatted_results = []
+
+        for result in results.results:
+            if result.document is None:
+                logging.error(f"Result document is None for index {result.index} with relevance score {result.relevance_score}")
+                continue
+
+            formatted_results.append({
+                "part_details": result.document.get('text', 'No text available'),
                 "index": result.index,
                 "relevance_score": result.relevance_score
-            } for result in results.results
-        ]
+            })
 
-        # print(formatted_results)
         return formatted_results
+
 
     from openai import OpenAI
     import openai
@@ -332,7 +338,7 @@ def product_recommendation_builder():
 
 
     if "openai_model" not in st.session_state:
-        st.session_state["openai_model"] = "gpt-4-0125-preview"
+        st.session_state["openai_model"] = "gpt-4o"
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -418,7 +424,7 @@ def product_recommendation_builder():
         st.divider()
 
         st.session_state.count = st.number_input('Insert desired number of retrieval', value=3, max_value=10, min_value=1, step=1)
-        # print("\n\nst.session_state.count:", st.session_state.count)
+        # #print("\n\nst.session_state.count:", st.session_state.count)
         
         st.divider()
 
@@ -460,10 +466,10 @@ def product_recommendation_builder():
         ):
             auto_part_criteria_response += str(response.choices[0].delta.content)
         st.session_state.auto_part_criteria.append(auto_part_criteria_response)
-        print ("\nauto_part_criteria_response:\n", auto_part_criteria_response)
+        #print ("\nauto_part_criteria_response:\n", auto_part_criteria_response)
 
 
-        # print("\nCount sanity check:\n", st.session_state.count)
+        # #print("\nCount sanity check:\n", st.session_state.count)
         sparse_dense_retrieval_response = sparse_dense_retrieval(auto_part_criteria_response, st.session_state.count)
         if "error" in sparse_dense_retrieval_response:
             st.session_state.auto_part_details.append(f"Based on user input: {prompt}. No auto part found.")
@@ -493,7 +499,7 @@ def product_recommendation_builder():
                 message_placeholder.markdown(full_response + "▌")
             message_placeholder.markdown(full_response + "\n")
             links = re.findall('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', full_response)
-            print ('\nlinks\n', links)
+            #print ('\nlinks\n', links)
             st.session_state.auto_part_image_link.append(links)
             st.session_state.messages.append({"role": "assistant", "content": full_response})
             st.session_state.memory.append(memory_summary_agent(". New information from Assistant about user needs: " 
@@ -508,7 +514,7 @@ def product_recommendation_builder():
             #summary
             st.session_state.summary.append(summarize_all_messages(prompt))
 
-    # print("\ndebug prompt: ", prompt, "\n")
+    # #print("\ndebug prompt: ", prompt, "\n")
 
     with st.expander("Auto Part Details 3"):
         
