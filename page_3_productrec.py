@@ -21,10 +21,14 @@ def product_recommendation_builder():
     from llama_index.core import (
         ServiceContext,
         Document,
+        Settings,
     )
     from llama_index.retrievers.bm25 import BM25Retriever
     from llama_index.llms.openai import OpenAI
     from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
+
+    from llama_index.llms.azure_openai import AzureOpenAI
+    from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
 
 
     os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
@@ -86,12 +90,37 @@ def product_recommendation_builder():
         # print("len docs:", len(documents))
 
 
-        if not os.path.exists("./bge_onnx"):
-            OptimumEmbedding.create_and_save_optimum_model(
-                "BAAI/bge-base-en-v1.5", "./bge_onnx"
+        # if not os.path.exists("./bge_onnx"):
+        #     OptimumEmbedding.create_and_save_optimum_model(
+        #         "BAAI/bge-base-en-v1.5", "./bge_onnx"
+        # )
+
+        # embed_model = OptimumEmbedding(folder_name="./bge_onnx", embed_batch_size=100)
+
+
+        azure_endpoint=st.secrets["AOAIEndpoint"]
+        api_key=st.secrets["AOAIKey"]
+        api_version="2024-02-15-preview"
+
+        llm = AzureOpenAI(
+            model="gpt-4o",
+            deployment_name="gpt-4o",
+            api_key=api_key,
+            azure_endpoint=azure_endpoint,
+            api_version=api_version,
         )
 
-        embed_model = OptimumEmbedding(folder_name="./bge_onnx", embed_batch_size=100)
+
+        embed_model = AzureOpenAIEmbedding(
+            model="text-embedding-3-small",
+            deployment_name="text-embedding-3-small",
+            api_key=api_key,
+            azure_endpoint=azure_endpoint,
+            api_version=api_version,
+        )
+
+        Settings.llm = llm
+        Settings.embed_model = embed_model
         service_context = ServiceContext.from_defaults(embed_model = embed_model)
         nodes = service_context.node_parser.get_nodes_from_documents(documents)
 
