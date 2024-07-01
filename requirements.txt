@@ -57,3 +57,13 @@ nest_asyncio
 unstructured_inference
 psutil
 pillow
+xlsxwriter
+llama-index-llms-openai
+llama-index-retrievers-bm25
+llama-index-embeddings-azure-openai
+llama-index-llms-azure-openai
+llama-index
+transformers 
+optimum[exporters]
+llama-index-embeddings-huggingface-optimum
+llama-index-indices-managed-vectara
