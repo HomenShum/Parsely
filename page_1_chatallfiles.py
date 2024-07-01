@@ -350,12 +350,12 @@ def chatallfiles_page():
     ### Llama_Parse Mode
     llama_parse_mode = sac.switch(label='Llama_Parse Mode (Only Indexes File if On before Uploadfile)', align='start', size='md')
     st.session_state["llama_parse_mode"] = llama_parse_mode
-    ic(st.session_state["llama_parse_mode"])
+    # ic(st.session_state["llama_parse_mode"])
 
     ### Vectara Query Mode
     vectara_query_mode = sac.switch(label='Vectara Query Mode', align='start', size='md')
     st.session_state["vectara_query_mode"] = vectara_query_mode
-    ic(st.session_state["vectara_query_mode"])
+    # ic(st.session_state["vectara_query_mode"])
 
     ### Reset Conversation
     if st.button("Reset Conversation"):
