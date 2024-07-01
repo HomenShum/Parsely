@@ -108,7 +108,7 @@ async def post_pdf_upload(session, url, filepath, sem):
         return message_info
         
 async def process_pdf_file(files):
-    url = "https://pdf2txt-tjvkcolpcq-uw.a.run.app/process_pdf_upload"
+    url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
     async with aiohttp.ClientSession() as session:
         tasks = []
         for index, file in enumerate(files, start=1):
@@ -163,7 +163,7 @@ async def post_image_upload(session, url, filepath, sem):
         logging.info(f"Execution time: {end_time - start_time} seconds")
 
 async def process_image_file(files):
-    url = "https://img2txt-tjvkcolpcq-wl.a.run.app/process_image_upload"
+    url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
     async with aiohttp.ClientSession() as session:
         tasks = []
         for index, file in enumerate(files, start=1):
@@ -267,7 +267,7 @@ async def post_other_file_upload(session, url, filepath, sem):
         return message_info  # return the structured message info
 
 async def process_other_file(files):
-    url = 'https://doc2txt-uvi-tjvkcolpcq-uw.a.run.app/process_upload'
+    url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
     async with aiohttp.ClientSession() as session:
         tasks = []
         for index, file in enumerate(files, start=1):
