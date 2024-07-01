@@ -25,7 +25,7 @@ def product_recommendation_builder():
     )
     from llama_index.retrievers.bm25 import BM25Retriever
     from llama_index.llms.openai import OpenAI
-    from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
+    # from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
 
     from llama_index.llms.azure_openai import AzureOpenAI
     from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
