@@ -67,3 +67,7 @@ transformers
 optimum[exporters]
 llama-index-embeddings-huggingface-optimum
 llama-index-indices-managed-vectara
+optimum
+transformers
+onnxruntime
+optimum[onnxruntime]
