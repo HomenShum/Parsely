@@ -54,6 +54,9 @@ def excelclassification_tool():
         elif st.session_state['classification_choice'] == 'general_response':
             response_model = CompanyClassificationGeneral
 
+        if 'model_choice' not in st.session_state:
+            st.session_state['model_choice'] = "gpt-4o"  # Initialize with a default value
+
         model_choice = st.session_state['model_choice']
 
         async with sem:
@@ -113,12 +116,16 @@ def excelclassification_tool():
 
     @retry_decorator
     async def rate_limited_query_main_generate_new_col_async(data: Dict[str, Any], sem: Semaphore, prompt: str) -> List[str]:
+        if 'model_choice' not in st.session_state:
+            st.session_state['model_choice'] = "gpt-4o"  # Initialize with a default value
+
         model_choice = st.session_state['model_choice']
         async with sem:
             print(f"Processing description: {str(data)}")
             model = await aclient.chat.completions.create(
                 # model="gpt-3.5-turbo-0125",
                 model=model_choice,
+                response_model=CompanyClassificationGeneral,
                 messages=[
                     {"role": "system", "content": prompt_for_generating_new_column},
                     {"role": "user", "content": str(data)},
@@ -126,7 +133,8 @@ def excelclassification_tool():
             max_retries=3,
             )
             ic(model)
-            return model.choices[0].message.content
+            # return model.choices[0].message.content
+            return [model.Response]
 
     @retry_decorator
     async def rate_limited_clean_up_async(data: Dict[str, Any], sem: Semaphore, prompt: str) -> List[str]:
@@ -809,6 +817,19 @@ def excelclassification_tool():
         if 'Build Your Own Bot' in selected_modes:
             st.write("Building Your Own Bot with DataFrame")
 
+        if 'selected_file_2' not in st.session_state:
+            st.session_state['selected_file_2'] = None
+        if 'selected_sheet_2' not in st.session_state:
+            st.session_state['selected_sheet_2'] = None
+        if 'new_df_to_be_processed_2' not in st.session_state:
+            st.session_state['new_df_to_be_processed_2'] = pd.DataFrame()
+        if 'new_df_to_be_processed_by_llm_2' not in st.session_state:
+            st.session_state['new_df_to_be_processed_by_llm_2'] = pd.DataFrame()
+        if 'batch_size' not in st.session_state:
+            st.session_state['batch_size'] = 5
+
+        from openai import RateLimitError
+
         if 'Generate New Column on Sheet B Given A' in selected_modes:
             with col2:
                 st.divider()
@@ -845,14 +866,14 @@ def excelclassification_tool():
                         if select_all_2:
                             selected_columns_2 = column_names_2
                             st.session_state['new_df_to_be_processed_2'] = df_2
-                            ic(st.session_state['new_df_to_be_processed_2'])
                         else:
                             selected_columns_2 = sac.chip(
                                 items=chip_items_2, 
                                 label='Select the 2nd columns to be downloaded or processed:', 
                                 align='start',
                                 radius='md', 
-                                multiple=True
+                                multiple=True,
+                                key='selected_columns_2_chip'  # Unique key for this widget
                             )
 
                             if not select_all_2 and not selected_columns_2:
@@ -883,7 +904,8 @@ def excelclassification_tool():
                             label='Select the columns to be used:', 
                             align='start',
                             radius='md', 
-                            multiple=True
+                            multiple=True,
+                            key='selected_columns_for_classification_2_chip'  # Unique key for this widget
                         )
 
                         if not select_all_for_classification_2 and not selected_columns_for_classification_2:
@@ -908,17 +930,7 @@ def excelclassification_tool():
                 height = 100
             )
 
-            from openai import RateLimitError
-
-
-            if 'batch_size' not in st.session_state:
-                st.session_state['batch_size'] = 5
-
-            st.subheader("Set the batch size for generating new column on Sheet B given A")
-            st.session_state['batch_size'] = st.number_input("Set the batch size for generating new column on Sheet B given A", min_value=1, max_value=100, value=5, step=1)
-
             if st.button("Looks Good! Start Generating New Column on Sheet B"):
-                # Start the classification process
                 start_time = time.time()
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -928,9 +940,6 @@ def excelclassification_tool():
                     st.info("Rate limit reached for the OpenAI API. Please try again later.")
                 st.write(f"Processing time: {time.time() - start_time} seconds.")
                 
-                # Display the results DataFrame
                 st.dataframe(new_column_results_df)
 
-                # store in session_state
                 st.session_state['new_column_results_df'] = new_column_results_df
-

@@ -297,7 +297,7 @@ async def run_all_file_processing(unprocessed_pdf_files_list, unprocessed_img_fi
         process_image_file(unprocessed_img_files_list),
         process_excel_file(unprocessed_excel_files_list),
         process_csv_file(unprocessed_csv_files_list),
-        process_other_file(unprocessed_other_files_list)
+        process_other_file(unprocessed_other_files_list),
     )
 
 ######################################################################
@@ -309,7 +309,6 @@ class FileUploader:
             st.session_state['uploaded_files'] = {}
         if 'selected_files' not in st.session_state:
             st.session_state['selected_files'] = []
-            
         if 'processed_files_metadata' not in st.session_state:
             st.session_state['processed_pdf_files_metadata'] = {}
         if 'processed_image_files_metadata' not in st.session_state:
@@ -322,19 +321,51 @@ class FileUploader:
             st.session_state['processed_other_files_metadata'] = {}
         if 'processed_html_files_metadata' not in st.session_state:
             st.session_state['processed_html_files_metadata'] = {}
-
-
         if 'llama_index_node_documents' not in st.session_state:
             st.session_state['llama_index_node_documents'] = {}
         if 'llama_parse_documents_list' not in st.session_state:
             st.session_state['llama_parse_documents_list'] = []
 
+    @st.cache_data
+    def extract_links_and_download_html(_self, url):
+        logging.info("Extracting links from URL: %s", url)
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, "html.parser")
+        links = soup.find_all("a", href=True)
 
+        html_files = []
+        for link in links:
+            href = link['href']
+            if href.startswith("http"):  # Ensure it's a full URL
+                response = requests.get(href)
+                if response.status_code == 200:
+                    file_name = href.split("/")[-1] + ".html"
+                    temp_file_path = os.path.join(tempfile.gettempdir(), file_name)
+                    with open(temp_file_path, "w", encoding="utf-8") as f:
+                        f.write(response.text)
+                    html_files.append(temp_file_path)
+        logging.info("Downloaded HTML files: %s", html_files)
+        return html_files
+
+    async def process_html_files(self, grouped_html_files):
+        url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
+        async with aiohttp.ClientSession() as session:
+            tasks = []
+            for index, file in enumerate(grouped_html_files, start=1):
+                tasks.append(self.post_other_file_upload(session, url, file, sem))
+            responses = await asyncio.gather(*tasks)
+            for response_list in responses:
+                for i, response_json in enumerate(response_list):
+                    st.session_state['processed_html_files_metadata'][f"index_{str(i)}_{str(response_json['source_name'])}"] = response_json
+        # logging.info("Processed HTML files metadata: %s", st.session_state['processed_html_files_metadata'])
+        return responses
+    
     def upload_files(self):
         if 'processed_html_files_metadata' not in st.session_state:
             st.session_state['processed_html_files_metadata'] = {}
 
-        with st.expander("📁 File Upload and Selection:"):
+        @st.experimental_fragment
+        def url_upload(self):
             url_input = st.text_input("Enter URL to scrape and process:")
             if url_input:
                 start_time = time.time()
@@ -342,13 +373,14 @@ class FileUploader:
                 asyncio.set_event_loop(loop)
                 os.environ["LLAMA_CLOUD_API_KEY"] = st.secrets['LLAMA_CLOUD_API_KEY']
                 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+                logging.info("Starting URL scraping process...")
+                grouped_html_files = self.extract_links_and_download_html(url_input)
+                logging.info("Running async process for HTML files...")
+                loop.run_until_complete(self.process_html_files(grouped_html_files))
+                logging.info("Finished processing HTML files.")
 
-                from llama_parse import LlamaParse
-
-                if url_input:
-                    grouped_html_files = self.extract_links_and_download_html(url_input)
-                    loop.run_until_complete(self.process_html_files(grouped_html_files))
-
+        @st.experimental_fragment
+        def files_upload(self):
             uploaded_files = st.file_uploader("📥 Limit < 2000MB", type=self.supported_extensions, accept_multiple_files=True)
             if uploaded_files:
                 start_time = time.time()
@@ -391,6 +423,8 @@ class FileUploader:
                         if file.name not in st.session_state['uploaded_files']['others']:
                             st.session_state['uploaded_files']['others'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
 
+
+
                 unprocessed_pdf_files_list = [file_info['file'] for file_info in st.session_state['uploaded_files'].get('pdf', {}).values() if not file_info['processed_bool']]
                 unprocessed_img_files_list = [file_info['file'] for file_info in st.session_state['uploaded_files'].get('img', {}).values() if not file_info['processed_bool']]
                 unprocessed_excel_files_list = [file_info['file'] for file_info in st.session_state['uploaded_files'].get('excel', {}).values() if not file_info['processed_bool']]
@@ -420,83 +454,90 @@ class FileUploader:
                 count_processed_files = sum([len(category_files) for category_files in st.session_state['uploaded_files'].values() if category_files])
                 st.success(f"Processed {count_processed_files} files. Processed File's Names: {format({file_info['file_short_name'] for category_files in st.session_state['uploaded_files'].values() for file_info in category_files.values()})}")
 
+
+        with st.expander("📁 File Upload and Selection:"):
+            url_upload(self)
+
+            files_upload(self)
+
             for key, value in st.session_state['processed_pdf_files_metadata'].items():
-                index = value['index']
-                source_name = value['source_name']
-
-                jointed_text_for_node = str(value)
-                if source_name not in st.session_state['llama_index_node_documents']:
-                    st.session_state['llama_index_node_documents'][source_name] = {}
-                st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
-
-            for key, value in st.session_state['processed_image_files_metadata'].items():
-                index = value['index']
-                source_name = value['source_name']
-
-                jointed_text_for_node = str(value)
-                if source_name not in st.session_state['llama_index_node_documents']:
-                    st.session_state['llama_index_node_documents'][source_name] = {}
-                st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
-
-            for file in st.session_state['processed_excel_files_metadata']:
-                file_name = file['FileName']
-                for sheet in file['Sheets']:
-                    sheet_name = sheet['SheetName']
-                    rows = sheet['Rows']
-                    for index, record in rows.items():
-                        record_texts = [f"{k}: {v}" for k, v in record.items()]
-                        joint_text = '. '.join(record_texts)
-                        jointed_text_for_node = {
-                            'index': index,
-                            'source_name': f"{file_name}_{sheet_name}",
-                            'text_chunk': joint_text,
-                        }
-
-                        source_name = f"{file_name}_{sheet_name}"
-                        if source_name not in st.session_state['llama_index_node_documents']:
-                            st.session_state['llama_index_node_documents'][source_name] = {}
-
-                        st.session_state['llama_index_node_documents'][source_name][index] = Document(text=str(jointed_text_for_node))
-
-            for file in st.session_state['processed_csv_files_metadata']:
-                file_name = file['FileName']
-                for sheet in file['Sheets']:
-                    sheet_name = sheet['SheetName']
-                    rows = sheet['Rows']
-                    for index, record in rows.items():
-                        record_texts = [f"{k}: {v}" for k, v in record.items()]
-                        joint_text = '. '.join(record_texts)
-                        jointed_text_for_node = {
-                            'index': index,
-                            'source_name': f"{file_name}_{sheet_name}",
-                            'text_chunk': joint_text,
-                        }
-
-                        source_name = f"{file_name}_{sheet_name}"
-                        if source_name not in st.session_state['llama_index_node_documents']:
-                            st.session_state['llama_index_node_documents'][source_name] = {}
-
-                        st.session_state['llama_index_node_documents'][source_name][index] = Document(text=str(jointed_text_for_node))
-
-            for key, value in st.session_state['processed_other_files_metadata'].items():
-                index = value['index']
-                source_name = value['source_name']
-
-                jointed_text_for_node = str(value)
-                unique_key = f"{source_name}_{index}"
-                if unique_key not in st.session_state['llama_index_node_documents']:
-                    st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
-
-            for url, files_metadata in st.session_state['processed_html_files_metadata'].items():
-                for value in files_metadata:
+                if isinstance(value, dict):  # Ensure value is a dictionary
                     index = value['index']
                     source_name = value['source_name']
+                    jointed_text_for_node = str(value)
+                    if source_name not in st.session_state['llama_index_node_documents']:
+                        st.session_state['llama_index_node_documents'][source_name] = {}
+                    st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
 
+            for key, value in st.session_state['processed_image_files_metadata'].items():
+                if isinstance(value, dict):  # Ensure value is a dictionary
+                    index = value['index']
+                    source_name = value['source_name']
+                    jointed_text_for_node = str(value)
+                    if source_name not in st.session_state['llama_index_node_documents']:
+                        st.session_state['llama_index_node_documents'][source_name] = {}
+                    st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
+
+            for file in st.session_state['processed_excel_files_metadata']:
+                if isinstance(file, dict):  # Ensure file is a dictionary
+                    file_name = file['FileName']
+                    for sheet in file['Sheets']:
+                        sheet_name = sheet['SheetName']
+                        rows = sheet['Rows']
+                        for index, record in rows.items():
+                            record_texts = [f"{k}: {v}" for k, v in record.items()]
+                            joint_text = '. '.join(record_texts)
+                            jointed_text_for_node = {
+                                'index': index,
+                                'source_name': f"{file_name}_{sheet_name}",
+                                'text_chunk': joint_text,
+                            }
+                            source_name = f"{file_name}_{sheet_name}"
+                            if source_name not in st.session_state['llama_index_node_documents']:
+                                st.session_state['llama_index_node_documents'][source_name] = {}
+                            st.session_state['llama_index_node_documents'][source_name][index] = Document(text=str(jointed_text_for_node))
+
+            for file in st.session_state['processed_csv_files_metadata']:
+                if isinstance(file, dict):  # Ensure file is a dictionary
+                    file_name = file['FileName']
+                    for sheet in file['Sheets']:
+                        sheet_name = sheet['SheetName']
+                        rows = sheet['Rows']
+                        for index, record in rows.items():
+                            record_texts = [f"{k}: {v}" for k, v in record.items()]
+                            joint_text = '. '.join(record_texts)
+                            jointed_text_for_node = {
+                                'index': index,
+                                'source_name': f"{file_name}_{sheet_name}",
+                                'text_chunk': joint_text,
+                            }
+                            source_name = f"{file_name}_{sheet_name}"
+                            if source_name not in st.session_state['llama_index_node_documents']:
+                                st.session_state['llama_index_node_documents'][source_name] = {}
+                            st.session_state['llama_index_node_documents'][source_name][index] = Document(text=str(jointed_text_for_node))
+
+            for key, value in st.session_state['processed_other_files_metadata'].items():
+                if isinstance(value, dict):  # Ensure value is a dictionary
+                    index = value['index']
+                    source_name = value['source_name']
                     jointed_text_for_node = str(value)
                     unique_key = f"{source_name}_{index}"
                     if unique_key not in st.session_state['llama_index_node_documents']:
                         st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
 
+            # Process HTML files
+            for url, files_metadata in st.session_state['processed_html_files_metadata'].items():
+                if isinstance(files_metadata, list):  # Ensure files_metadata is a list
+                    for file_metadata in files_metadata:
+                        if isinstance(file_metadata, dict):  # Ensure file_metadata is a dictionary
+                            index = file_metadata['index']
+                            source_name = file_metadata['source_name']
+                            jointed_text_for_node = str(file_metadata)
+                            unique_key = f"{source_name}_{index}"
+                            if unique_key not in st.session_state['llama_index_node_documents']:
+                                st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
+
+            # Combine all documents (including HTML) into the selection UI
             all_documents = []
             short_key_and_documents_for_selected_files = {}
             for key, value in st.session_state['llama_index_node_documents'].items():
@@ -505,11 +546,13 @@ class FileUploader:
                 all_documents.append(value)
                 short_key_and_documents_for_selected_files[short_key] = value
 
+            # Select Files
             st.markdown("🤌 File Selection")
             all_selected_files = sac.chip(
                 items = [sac.ChipItem(label="All Files")],
                 radius='md',
-                multiple=True
+                multiple=True,
+                key="all_files_chip"  # Unique key for this widget
             )                
 
             selected_files = sac.chip(
@@ -518,7 +561,8 @@ class FileUploader:
                     for short_key in short_key_and_documents_for_selected_files.keys()
                 ],
                 radius='md',
-                multiple=True
+                multiple=True,
+                key="selected_files_chip"  # Unique key for this widget
             )
 
             st.write("📝 Selected files")
@@ -547,59 +591,3 @@ class FileUploader:
                 st.rerun()
 
             return st.session_state['uploaded_files'], st.session_state['selected_files'], st.session_state['llama_parse_documents_list']
-
-
-
-    @st.cache_data
-    def extract_links_and_download_html(_self, url):
-        response = requests.get(url)
-        soup = BeautifulSoup(response.content, "html.parser")
-        links = soup.find_all("a", href=True)
-        
-        html_files = []
-        for link in links:
-            href = link['href']
-            if href.startswith("http"):  # Ensure it's a full URL
-                response = requests.get(href)
-                if response.status_code == 200:
-                    file_name = href.split("/")[-1] + ".html"
-                    temp_file_path = os.path.join(tempfile.gettempdir(), file_name)
-                    with open(temp_file_path, "w", encoding="utf-8") as f:
-                        f.write(response.text)
-                    html_files.append(temp_file_path)
-        return html_files
-
-    async def process_html_files(self, files):
-        url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
-        async with aiohttp.ClientSession() as session:
-            tasks = []
-            for file in files:
-                tasks.append(post_other_file_upload(session, url, file, sem))
-            responses = await asyncio.gather(*tasks)
-            for response_list in responses:
-                for i, response_json in enumerate(response_list):
-                    st.session_state['processed_html_files_metadata'][f"index_{str(i)}_{str(response_json['source_name'])}"] = response_json
-        return responses
-
-
-    @st.cache_data
-    def download_html(_self, url):
-        response = requests.get(url)
-        if response.status_code == 200:
-            file_name = url.split("/")[-1] + ".html"
-            temp_file_path = os.path.join(tempfile.gettempdir(), file_name)
-            with open(temp_file_path, "w", encoding="utf-8") as f:
-                f.write(response.text)
-            return [temp_file_path]
-        return []
-
-    def reset_all_files(self):
-        st.session_state['uploaded_files'] = {}
-        st.session_state['selected_files'] = []
-        st.session_state['processed_pdf_files_metadata'] = {}
-        st.session_state['processed_image_files_metadata'] = {}
-        st.session_state['processed_excel_files_metadata'] = {}
-        st.session_state['processed_csv_files_metadata'] = {}
-        st.session_state['processed_other_files_metadata'] = {}
-        st.session_state['llama_index_node_documents'] = {}
-        st.session_state['llama_parse_documents_list'] = []
