@@ -153,6 +153,7 @@ def excelclassification_tool():
             )
             return model.choices[0].message.content
 
+
     async def main_generate_new_col_async(df_a, df_b, prompt):
         df_a_dict_list = df_a.to_dict('records')
         df_b_dict_list = df_b.to_dict('records')
@@ -164,16 +165,17 @@ def excelclassification_tool():
                 df_a_dict_batch = df_a_dict_list[j:j+batch_size]  # Select a batch from df_a_dict_list in order
                 prompt_list.append((i, f"Sheet A data: {df_a_dict_batch}. Sheet B data: {df_b_dict_list[i]}"))
 
-        # do it for all row in both dataframes
         tasks = [(i, rate_limited_query_main_generate_new_col_async(data, sem, prompt)) for i, data in prompt_list]
         results = await asyncio.gather(*[task for _, task in tasks])
 
         # Group the results by the index of df_b_dict_list
-        results_grouped = ['' for _ in range(len(df_b_dict_list))]
+        results_grouped = [[] for _ in range(len(df_b_dict_list))]
         for (i, _), result in zip(tasks, results):
-            results_grouped[i] += result
-            
-        results_df = pd.DataFrame(results_grouped, columns=['Generated New Column'])
+            results_grouped[i].extend(result)
+
+        # Flatten the results_grouped list and convert it into DataFrame
+        results_grouped_flat = [" ".join(map(str, result)) for result in results_grouped]
+        results_df = pd.DataFrame(results_grouped_flat, columns=['Generated New Column'])
 
         final_df = pd.concat([st.session_state['new_df_to_be_processed_2'], results_df], axis=1)
 
@@ -191,8 +193,6 @@ def excelclassification_tool():
         clean_up_final_df = pd.concat([final_df, clean_up_results_df], axis=1)
 
         return clean_up_final_df
-        
-
         
         
 
@@ -932,6 +932,19 @@ def excelclassification_tool():
                 value = "Extract contact names and emails that matches Sheet B's company name. If there is no match, then leave blank.",
                 height = 100
             )
+
+            # Display a preview of the prompt composition
+            if st.session_state['new_df_to_be_processed_by_llm'].empty or st.session_state['new_df_to_be_processed_by_llm_2'].empty:
+                st.warning("Please select columns for both sheets before generating the prompt preview.")
+            else:
+                df_a_dict_list = st.session_state['new_df_to_be_processed_by_llm'].to_dict('records')
+                df_b_dict_list = st.session_state['new_df_to_be_processed_by_llm_2'].to_dict('records')
+                batch_size = st.session_state.batch_size
+                i = 0
+                j = 0
+                df_a_dict_batch = df_a_dict_list[j:j+batch_size]
+                prompt_preview = f"Sheet A data: {df_a_dict_batch}. Sheet B data: {df_b_dict_list[i]}"
+                st.markdown(f"**Prompt Preview:**\n\n{prompt_preview}")
 
             if st.button("Looks Good! Start Generating New Column on Sheet B"):
                 start_time = time.time()
