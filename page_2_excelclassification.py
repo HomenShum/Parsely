@@ -41,6 +41,9 @@ def excelclassification_tool():
     class CompanyClassificationGeneral(BaseModel):
         Response: List[str]
 
+    class CompanyClassificationGeneral2(BaseModel):
+        Response: str
+
     # Asynchronous function to query data using OpenAI and validate with Pydantic
     sem = asyncio.Semaphore(1000)
     retry_decorator = retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True)
@@ -125,7 +128,7 @@ def excelclassification_tool():
             model = await aclient.chat.completions.create(
                 # model="gpt-3.5-turbo-0125",
                 model=model_choice,
-                response_model=CompanyClassificationGeneral,
+                response_model=CompanyClassificationGeneral2,
                 messages=[
                     {"role": "system", "content": prompt_for_generating_new_column},
                     {"role": "user", "content": str(data)},
