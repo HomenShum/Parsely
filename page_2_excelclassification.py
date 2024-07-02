@@ -124,7 +124,7 @@ def excelclassification_tool():
 
         model_choice = st.session_state['model_choice']
         async with sem:
-            print(f"Processing description: {str(data)}")
+            # print(f"Processing description: {str(data)}")
             model = await aclient.chat.completions.create(
                 # model="gpt-3.5-turbo-0125",
                 model=model_choice,
@@ -139,21 +139,19 @@ def excelclassification_tool():
             # return model.choices[0].message.content
             return [model.Response]
 
-    @retry_decorator
-    async def rate_limited_clean_up_async(data: Dict[str, Any], sem: Semaphore, prompt: str) -> List[str]:
+    @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=1, min=1, max=60))
+    async def rate_limited_clean_up_async(data: dict, sem: asyncio.Semaphore, prompt: str) -> str:
         async with sem:
-            print(f"Processing description: {str(data)}")
             model = await aclient.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4",
                 response_model=CompanyClassificationGeneral2,
                 messages=[
-                    {"role": "system", "content": "Clean up the irrelevant result. Keep only useful and relevant information in readable format."},
+                    {"role": "system", "content": "Clean up the irrelevant result. Keep only useful and relevant information in readable format. Double Check and Proof Read."},
                     {"role": "user", "content": str(data)},
                 ],
-            max_retries=3,
+                max_retries=3,
             )
             return [model.Response]
-
 
     async def main_generate_new_col_async(df_a, df_b, prompt):
         df_a_dict_list = df_a.to_dict('records')
@@ -184,7 +182,7 @@ def excelclassification_tool():
         results_df_dict_list = results_df.to_dict('records')
         clean_up_prompt_list = []
         for i in range(len(results_df_dict_list)):
-            clean_up_prompt_list.append((i, f"{prompt_for_generating_new_column}. Sheet B data: {df_b_dict_list[i]}. Final result: {results_df_dict_list[i]}"))
+            clean_up_prompt_list.append((i, f"{prompt}. Sheet B data: {df_b_dict_list[i]}. Final result: {results_df_dict_list[i]}"))
 
         clean_up_tasks = [(i, rate_limited_clean_up_async(data, sem, prompt)) for i, data in clean_up_prompt_list]
         clean_up_results = await asyncio.gather(*[task for _, task in clean_up_tasks])
@@ -194,7 +192,6 @@ def excelclassification_tool():
         clean_up_final_df = pd.concat([final_df, clean_up_results_df], axis=1)
 
         return clean_up_final_df
-        
         
 
     def unmask_data(masked_data, unmasking_dict):
