@@ -145,7 +145,7 @@ def excelclassification_tool():
             print(f"Processing description: {str(data)}")
             model = await aclient.chat.completions.create(
                 model="gpt-4o",
-                response_model=CompanyClassificationGeneral2
+                response_model=CompanyClassificationGeneral2,
                 messages=[
                     {"role": "system", "content": "Clean up the irrelevant result. Keep only useful and relevant information in readable format."},
                     {"role": "user", "content": str(data)},
