@@ -110,25 +110,28 @@ async def post_pdf_upload(session, url, filepath, sem):
         return message_info
         
 async def process_pdf_file(files):
+    if 'processed_pdf_files_metadata' not in st.session_state:
+        st.session_state['processed_pdf_files_metadata'] = {}
+
     url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
     async with aiohttp.ClientSession() as session:
         tasks = []
         for index, file in enumerate(files, start=1):
-            # Create a unique file name with the same base name as the uploaded file and the index as a unique identifier
             unique_file_name = f"{os.path.splitext(file.name)[0]}_{index}{os.path.splitext(file.name)[1]}"
             temp_file_path = os.path.join(tempfile.gettempdir(), unique_file_name)
-            # Write the uploaded file's contents to the temporary file
             with open(temp_file_path, 'wb') as temp_file:
                 temp_file.write(file.read())
-                # Add a task to post the temporary file
                 tasks.append(post_pdf_upload(session, url, temp_file.name, sem))
-        responses = await asyncio.gather(*tasks)
-        # ic(responses)
-        for response_list in responses:
-            for i, response_json in enumerate(response_list):
-                # store in session state
-                st.session_state['processed_pdf_files_metadata'][f"index_{str(response_json['index'])}_{str(response_json['source_name'])}_{i}"] = response_json
-        return responses
+
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
+        for response in responses:
+            if isinstance(response, Exception):
+                logging.error(f"Error occurred: {response}")
+            else:
+                for i, response_json in enumerate(response):
+                    st.session_state['processed_pdf_files_metadata'][f"index_{i}_{response_json['source_name']}"] = response_json
+
+        return st.session_state['processed_pdf_files_metadata']
 
 # print(f"Time taken for processing two files: {two_files_time}")
 # print(f"Time taken for processing all files: {all_files_time}")
@@ -192,42 +195,52 @@ async def process_image_file(files):
 import pandas as pd
 import numpy as np
 
+# Corrected: Initialize processed files metadata as dictionaries
+if 'processed_excel_files_metadata' not in st.session_state:
+    st.session_state['processed_excel_files_metadata'] = {}
+
+if 'processed_csv_files_metadata' not in st.session_state:
+    st.session_state['processed_csv_files_metadata'] = {}
+
+# Corrected: Processing of Excel files
 async def process_excel_file(files):
     for file in files:
+        file_name = file.name
         excel_file = pd.ExcelFile(file)
         sheet_names = excel_file.sheet_names
         sheet_data = []
 
         for sheet in sheet_names:
             df = pd.read_excel(excel_file, sheet_name=sheet)
-            # Transform the DataFrame to a dictionary, where each key-value pair represents a row
             rows = df.to_dict('index')
             sheet_data.append({
                 'SheetName': sheet,
                 'Rows': rows,
-                'DataFrame': df  # Store the DataFrame in the session state
+                'DataFrame': df
             })
 
-        st.session_state['processed_excel_files_metadata'].append({
-            'FileName': file.name,
+        st.session_state['processed_excel_files_metadata'][file_name] = {
+            'FileName': file_name,
             'Sheets': sheet_data
-        })
+        }
 
     return st.session_state['processed_excel_files_metadata']
 
+# Corrected: Processing of CSV files
 async def process_csv_file(files):
     for file in files:
+        file_name = file.name
         df = pd.read_csv(file)
-        # Transform the DataFrame to a dictionary, where each key-value pair represents a row
         rows = df.to_dict('index')
-        sheet_data = [{'SheetName': 'na', 'Rows': rows, 'DataFrame': df}]  # Store the DataFrame in the session state
+        sheet_data = [{'SheetName': 'na', 'Rows': rows, 'DataFrame': df}]
 
-        st.session_state['processed_csv_files_metadata'].append({
-            'FileName': file.name,
+        st.session_state['processed_csv_files_metadata'][file_name] = {
+            'FileName': file_name,
             'Sheets': sheet_data
-        })
+        }
 
     return st.session_state['processed_csv_files_metadata']
+
 
 ######################################################################
 ########## Other Files ###############################################
@@ -269,25 +282,28 @@ async def post_other_file_upload(session, url, filepath, sem):
         return message_info  # return the structured message info
 
 async def process_other_file(files):
+    if 'processed_other_files_metadata' not in st.session_state:
+        st.session_state['processed_other_files_metadata'] = {}
+
     url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
     async with aiohttp.ClientSession() as session:
         tasks = []
         for index, file in enumerate(files, start=1):
-            # Create a unique file name with the same base name as the uploaded file and the index as a unique identifier
             unique_file_name = f"{os.path.splitext(file.name)[0]}_{index}{os.path.splitext(file.name)[1]}"
             temp_file_path = os.path.join(tempfile.gettempdir(), unique_file_name)
-            # Write the uploaded file's contents to the temporary file
             with open(temp_file_path, 'wb') as temp_file:
                 temp_file.write(file.read())
-                # Add a task to post the temporary file
                 tasks.append(post_other_file_upload(session, url, temp_file.name, sem))
-        responses = await asyncio.gather(*tasks)
-        # ic(responses)
-        for response_list in responses:
-            for i, response_json in enumerate(response_list):
-                # store in session state
-                st.session_state['processed_other_files_metadata'][f"index_{str(i)}_{str(response_json['source_name'])}"] = response_json
-        return responses
+
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
+        for response in responses:
+            if isinstance(response, Exception):
+                logging.error(f"Error occurred: {response}")
+            else:
+                for i, response_json in enumerate(response):
+                    st.session_state['processed_other_files_metadata'][f"index_{i}_{response_json['source_name']}"] = response_json
+
+        return st.session_state['processed_other_files_metadata']
 
 ######################################################################
 ########## Function to run all above #############################################
@@ -381,7 +397,8 @@ class FileUploader:
 
         @st.experimental_fragment
         def files_upload(self):
-            uploaded_files = st.file_uploader("📥 Limit < 2000MB", type=self.supported_extensions, accept_multiple_files=True)
+            # Handle file uploads and set processed_bool
+            uploaded_files = st.file_uploader("📥 Limit < 2000MB", type=SUPPORTED_EXTENSIONS, accept_multiple_files=True)
             if uploaded_files:
                 start_time = time.time()
                 loop = asyncio.new_event_loop()
@@ -397,32 +414,26 @@ class FileUploader:
                     if file.name.endswith(".pdf"):
                         if 'pdf' not in st.session_state['uploaded_files']:
                             st.session_state['uploaded_files']['pdf'] = {}
-                        if file.name not in st.session_state['uploaded_files']['pdf']:
-                            st.session_state['uploaded_files']['pdf'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
-                            if st.session_state['llama_parse_mode'] == 'True':
-                                llama_parse_documents = LlamaParse(result_type="markdown").load_data(file_path=file)
-                                st.session_state['llama_parse_documents_list'].append(llama_parse_documents)
+                        st.session_state['uploaded_files']['pdf'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
+                        if st.session_state['llama_parse_mode'] == 'True':
+                            llama_parse_documents = LlamaParse(result_type="markdown").load_data(file_path=file)
+                            st.session_state['llama_parse_documents_list'].append(llama_parse_documents)
                     elif file.name.endswith(".png") or file.name.endswith(".jpg"):
                         if 'img' not in st.session_state['uploaded_files']:
                             st.session_state['uploaded_files']['img'] = {}
-                        if file.name not in st.session_state['uploaded_files']['img']:
-                            st.session_state['uploaded_files']['img'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
+                        st.session_state['uploaded_files']['img'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
                     elif file.name.endswith(".xlsx"):
                         if 'excel' not in st.session_state['uploaded_files']:
                             st.session_state['uploaded_files']['excel'] = {}
-                        if file.name not in st.session_state['uploaded_files']['excel']:
-                            st.session_state['uploaded_files']['excel'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
+                        st.session_state['uploaded_files']['excel'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
                     elif file.name.endswith(".csv"):
-                        if 'excel' not in st.session_state['uploaded_files']:
+                        if 'csv' not in st.session_state['uploaded_files']:
                             st.session_state['uploaded_files']['csv'] = {}
-                        if file.name not in st.session_state['uploaded_files']['excel']:
-                            st.session_state['uploaded_files']['csv'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
+                        st.session_state['uploaded_files']['csv'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
                     else:
                         if 'others' not in st.session_state['uploaded_files']:
                             st.session_state['uploaded_files']['others'] = {}
-                        if file.name not in st.session_state['uploaded_files']['others']:
-                            st.session_state['uploaded_files']['others'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
-
+                        st.session_state['uploaded_files']['others'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
 
 
                 unprocessed_pdf_files_list = [file_info['file'] for file_info in st.session_state['uploaded_files'].get('pdf', {}).values() if not file_info['processed_bool']]
@@ -455,108 +466,113 @@ class FileUploader:
                 st.success(f"Processed {count_processed_files} files. Processed File's Names: {format({file_info['file_short_name'] for category_files in st.session_state['uploaded_files'].values() for file_info in category_files.values()})}")
 
 
+        # File upload and selection section
         with st.expander("📁 File Upload and Selection:"):
             url_upload(self)
-
             files_upload(self)
 
+            # Process PDF files
             for key, value in st.session_state['processed_pdf_files_metadata'].items():
-                if isinstance(value, dict):  # Ensure value is a dictionary
-                    index = value['index']
-                    source_name = value['source_name']
-                    jointed_text_for_node = str(value)
-                    if source_name not in st.session_state['llama_index_node_documents']:
-                        st.session_state['llama_index_node_documents'][source_name] = {}
-                    st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
+                index = value['index']
+                source_name = value['source_name']
+                jointed_text_for_node = str(value)
+                if source_name not in st.session_state['llama_index_node_documents']:
+                    st.session_state['llama_index_node_documents'][source_name] = {}
+                st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
 
+            # Process image files
             for key, value in st.session_state['processed_image_files_metadata'].items():
-                if isinstance(value, dict):  # Ensure value is a dictionary
-                    index = value['index']
-                    source_name = value['source_name']
-                    jointed_text_for_node = str(value)
-                    if source_name not in st.session_state['llama_index_node_documents']:
-                        st.session_state['llama_index_node_documents'][source_name] = {}
-                    st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
+                index = value['index']
+                source_name = value['source_name']
+                jointed_text_for_node = str(value)
+                if source_name not in st.session_state['llama_index_node_documents']:
+                    st.session_state['llama_index_node_documents'][source_name] = {}
+                st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
 
+            # Process Excel files
             for file in st.session_state['processed_excel_files_metadata']:
-                if isinstance(file, dict):  # Ensure file is a dictionary
-                    file_name = file['FileName']
-                    for sheet in file['Sheets']:
-                        sheet_name = sheet['SheetName']
-                        rows = sheet['Rows']
-                        for index, record in rows.items():
-                            record_texts = [f"{k}: {v}" for k, v in record.items()]
-                            joint_text = '. '.join(record_texts)
-                            jointed_text_for_node = {
-                                'index': index,
-                                'source_name': f"{file_name}_{sheet_name}",
-                                'text_chunk': joint_text,
-                            }
-                            source_name = f"{file_name}_{sheet_name}"
-                            if source_name not in st.session_state['llama_index_node_documents']:
-                                st.session_state['llama_index_node_documents'][source_name] = {}
-                            st.session_state['llama_index_node_documents'][source_name][index] = Document(text=str(jointed_text_for_node))
+                logging.debug(f"Processing Excel file: {file}")
+                file_name = file['FileName']
+                for sheet in file['Sheets']:
+                    sheet_name = sheet['SheetName']
+                    rows = sheet['Rows']
+                    for index, record in rows.items():
+                        record_texts = [f"{k}: {v}" for k, v in record.items()]
+                        joint_text = '. '.join(record_texts)
+                        jointed_text_for_node = {
+                            'index': index,
+                            'source_name': f"{file_name}_{sheet_name}",
+                            'text_chunk': joint_text,
+                        }
+                        source_name = f"{file_name}_{sheet_name}"
+                        if source_name not in st.session_state['llama_index_node_documents']:
+                            st.session_state['llama_index_node_documents'][source_name] = {}
+                        st.session_state['llama_index_node_documents'][source_name][index] = Document(text=str(jointed_text_for_node))
 
+            # Process CSV files
             for file in st.session_state['processed_csv_files_metadata']:
-                if isinstance(file, dict):  # Ensure file is a dictionary
-                    file_name = file['FileName']
-                    for sheet in file['Sheets']:
-                        sheet_name = sheet['SheetName']
-                        rows = sheet['Rows']
-                        for index, record in rows.items():
-                            record_texts = [f"{k}: {v}" for k, v in record.items()]
-                            joint_text = '. '.join(record_texts)
-                            jointed_text_for_node = {
-                                'index': index,
-                                'source_name': f"{file_name}_{sheet_name}",
-                                'text_chunk': joint_text,
-                            }
-                            source_name = f"{file_name}_{sheet_name}"
-                            if source_name not in st.session_state['llama_index_node_documents']:
-                                st.session_state['llama_index_node_documents'][source_name] = {}
-                            st.session_state['llama_index_node_documents'][source_name][index] = Document(text=str(jointed_text_for_node))
+                logging.debug(f"Processing CSV file: {file}")
+                file_name = file['FileName']
+                for sheet in file['Sheets']:
+                    sheet_name = sheet['SheetName']
+                    rows = sheet['Rows']
+                    for index, record in rows.items():
+                        record_texts = [f"{k}: {v}" for k, v in record.items()]
+                        joint_text = '. '.join(record_texts)
+                        jointed_text_for_node = {
+                            'index': index,
+                            'source_name': f"{file_name}_{sheet_name}",
+                            'text_chunk': joint_text,
+                        }
+                        source_name = f"{file_name}_{sheet_name}"
+                        if source_name not in st.session_state['llama_index_node_documents']:
+                            st.session_state['llama_index_node_documents'][source_name] = {}
+                        st.session_state['llama_index_node_documents'][source_name][index] = Document(text=str(jointed_text_for_node))
 
+            # Process other files
             for key, value in st.session_state['processed_other_files_metadata'].items():
-                if isinstance(value, dict):  # Ensure value is a dictionary
-                    index = value['index']
-                    source_name = value['source_name']
-                    jointed_text_for_node = str(value)
+                index = value['index']
+                source_name = value['source_name']
+                jointed_text_for_node = str(value)
+                unique_key = f"{source_name}_{index}"
+                if unique_key not in st.session_state['llama_index_node_documents']:
+                    st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
+
+            # Process HTML files
+            for url, files_metadata in st.session_state['processed_html_files_metadata'].items():
+                for file_metadata in files_metadata:
+                    index = file_metadata['index']
+                    source_name = file_metadata['source_name']
+                    jointed_text_for_node = str(file_metadata)
                     unique_key = f"{source_name}_{index}"
                     if unique_key not in st.session_state['llama_index_node_documents']:
                         st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
 
-            # Process HTML files
-            for url, files_metadata in st.session_state['processed_html_files_metadata'].items():
-                if isinstance(files_metadata, list):  # Ensure files_metadata is a list
-                    for file_metadata in files_metadata:
-                        if isinstance(file_metadata, dict):  # Ensure file_metadata is a dictionary
-                            index = file_metadata['index']
-                            source_name = file_metadata['source_name']
-                            jointed_text_for_node = str(file_metadata)
-                            unique_key = f"{source_name}_{index}"
-                            if unique_key not in st.session_state['llama_index_node_documents']:
-                                st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
+
+            st.write(st.session_state['llama_index_node_documents'].items())
 
             # Combine all documents (including HTML) into the selection UI
             all_documents = []
             short_key_and_documents_for_selected_files = {}
             for key, value in st.session_state['llama_index_node_documents'].items():
-                file_extension = os.path.splitext(key)[1]
                 short_key = f"{key if len(key) <= 20 else key[:10] + '...' + key[-10:]}"
-                all_documents.append(value)
-                short_key_and_documents_for_selected_files[short_key] = value
+                for index, doc in value.items():
+                    all_documents.append(doc)
+                    short_key_and_documents_for_selected_files[short_key] = doc
 
             # Select Files
             st.markdown("🤌 File Selection")
             all_selected_files = sac.chip(
-                items = [sac.ChipItem(label="All Files")],
+                items=[sac.ChipItem(label="All Files")],
                 radius='md',
                 multiple=True,
                 key="all_files_chip"  # Unique key for this widget
             )                
 
+            st.write(short_key_and_documents_for_selected_files)
+
             selected_files = sac.chip(
-                items = [
+                items=[
                     sac.ChipItem(label=short_key) 
                     for short_key in short_key_and_documents_for_selected_files.keys()
                 ],
@@ -576,6 +592,7 @@ class FileUploader:
                 st.session_state['selected_files'] = selected_documents
 
             st.info("Select All Files to index all documents. Unselect All Files & Select individual files to index only those files.")
+
 
             if st.button("Reset Files"):
                 st.session_state['uploaded_files'] = {}
