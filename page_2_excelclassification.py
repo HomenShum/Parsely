@@ -139,7 +139,7 @@ def excelclassification_tool():
             # return model.choices[0].message.content
             return [model.Response]
 
-    @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=1, min=1, max=60))
+    @retry_decorator
     async def rate_limited_clean_up_async(data: dict, sem: asyncio.Semaphore, prompt: str) -> str:
         async with sem:
             model = await aclient.chat.completions.create(
