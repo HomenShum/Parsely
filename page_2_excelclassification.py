@@ -135,7 +135,7 @@ def excelclassification_tool():
                 ],
             max_retries=3,
             )
-            ic(model)
+            # ic(model)
             # return model.choices[0].message.content
             return [model.Response]
 
@@ -144,14 +144,15 @@ def excelclassification_tool():
         async with sem:
             print(f"Processing description: {str(data)}")
             model = await aclient.chat.completions.create(
-                model="gpt-4-turbo",
+                model="gpt-4o",
+                response_model=CompanyClassificationGeneral2
                 messages=[
                     {"role": "system", "content": "Clean up the irrelevant result. Keep only useful and relevant information in readable format."},
                     {"role": "user", "content": str(data)},
                 ],
             max_retries=3,
             )
-            return model.choices[0].message.content
+            return [model.Response]
 
 
     async def main_generate_new_col_async(df_a, df_b, prompt):
