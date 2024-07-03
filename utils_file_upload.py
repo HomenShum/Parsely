@@ -426,6 +426,11 @@ class FileUploader:
                     st.error("Invalid URL. Please enter a valid URL.")
                     return
 
+                # Check if the URL has already been processed
+                if 'grouped_html_files_by_url' in st.session_state and url_input in st.session_state['grouped_html_files_by_url']:
+                    st.info(f"The URL {url_input} has already been processed.")
+                    return
+
                 start_time = time.time()
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -525,7 +530,7 @@ class FileUploader:
                 st.success(f"Processed {total_processed} files. Processed File's Names: {format({file_info['file_short_name'] for files in st.session_state['uploaded_files'].values() for file_info in files.values()})}")
 
         # File upload and selection section
-        with st.expander("📁 File Upload and Selection:"):
+        with st.expander("📁 File Upload and Selection:", expanded=True):
             url_upload()
             files_upload(self)
 
@@ -598,13 +603,16 @@ class FileUploader:
             # Process HTML files
             grouped_by_url = st.session_state.get('grouped_html_files_by_url', {})
             for url, file_metadatas in grouped_by_url.items():
+                logging.debug(f"Processing URL: {url} with {len(file_metadatas)} files")
                 for file_metadata in file_metadatas:
                     index = file_metadata['index']
                     source_name = file_metadata['source_name']
                     jointed_text_for_node = str(file_metadata)
                     unique_key = f"{source_name}_{index}"
+                    logging.debug(f"Generated unique key: {unique_key} for file metadata: {file_metadata}")
                     if unique_key not in st.session_state['llama_index_node_documents']:
                         st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
+                        logging.info(f"Added document with key {unique_key} to llama_index_node_documents")
 
 
 
