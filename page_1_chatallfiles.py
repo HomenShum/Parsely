@@ -229,6 +229,7 @@ def chatallfiles_page():
 
             # Create a task for each highlighted_content
             for result in search_files_result:
+                logging.info(f"async def process_files_data() - Processing result: {result}")
                 payload = {
                     "model": "gpt-3.5-turbo-0125",
                     "response_format": { "type": "json_object" },
@@ -293,27 +294,40 @@ def chatallfiles_page():
         try:
             # st.toast(f"Searching in FILES")
             search_files_output_data_list = loop.run_until_complete(files_bm25_search(query=user_needs))
+            logging.info(f"Search Files Output Data List: {search_files_output_data_list}")
             ##### Dense: Cohere Rerank #####
             co = cohere.Client(st.secrets["COHERE_API_KEY"])
             rerank_search_files_output_data_list = [{'text': str({"result": result}).replace('$', '\$')} for result in search_files_output_data_list]
-            rerank_search_files_output_data_list_results = co.rerank(model="rerank-english-v2.0",
-                                    query=user_needs,
-                                    documents=rerank_search_files_output_data_list,
-                                    top_n=10)
+            rerank_response = co.rerank(
+                model="rerank-english-v3.0",
+                query=user_needs,
+                documents=rerank_search_files_output_data_list,
+                top_n=10,
+                return_documents=True
+            )
+
             ##### Dense: Cohere Rerank #####
-            processed_data = loop.run_until_complete(process_files_data(user_needs, rerank_search_files_output_data_list_results))
-            main_full_response += "\n" + str(processed_data)
+            # Extract all document texts from the rerank results
+            if rerank_response and rerank_response.results:
+                processed_data = loop.run_until_complete(process_files_data(user_needs, rerank_response.results))
+                main_full_response += "\n" + str(processed_data)
+            else:
+                logging.error("No results from rerank")
+                main_full_response += "\nNo relevant documents found."
+
         finally:
             loop.close()
 
+
+
         # ic(main_full_response)
 
-        # Final Response with GPT-4-0125-Preview
+        # Final Response with gpt-4o
 
         final_response = ""
         second_response_message_placeholder = st.empty()
         responses = client.chat.completions.create(
-            model="gpt-4-0125-preview",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": f"Highly detailed **Answer**, rest of the response should be concise, unless user asks for more details. Make sure to rephrase the User Input. Extrapolate the user needs in a key topic list. Utilize FILES Search Result. Begin with '**Question Summary**, **Key Topics**, **Answer**, **Source of Evidence**, **Confidence ** (low medium high)...'"},
                 {"role": "user", "content": f"User Input: {user_question}, User Needs: {user_needs}, FILES Search Result: {processed_data}, Main Full Response: {main_full_response}"}
@@ -398,6 +412,7 @@ def chatallfiles_page():
                         # page_1_st_session_state_selected_files = st.session_state['selected_files']
                         # # ic(page_1_st_session_state_selected_files)
                         for document_obj in st.session_state['selected_files']:
+                            # ic(document_obj)
                             # Assuming 'selected_files' is directly storing Document objects
                             # if document_obj has items
                             if isinstance(document_obj, dict):
@@ -447,7 +462,7 @@ def chatallfiles_page():
                     nodes = node_parser.get_nodes_from_documents(llama_parse_documents)
                     base_nodes, node_mapping = node_parser.get_base_nodes_and_mappings(nodes)
                     ctx = ServiceContext.from_defaults(
-                        llm=OpenAI(model="gpt-4-0125-preview"), 
+                        llm=OpenAI(model="gpt-4o"), 
                         embed_model=OpenAIEmbedding(model="text-embedding-3-small"), 
                         chunk_size=512
                     )
