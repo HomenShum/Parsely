@@ -353,37 +353,58 @@ class FileUploader:
         for link in links:
             href = link['href']
             if href.startswith("http"):  # Ensure it's a full URL
-                response = requests.get(href)
-                if response.status_code == 200:
-                    file_name = href.split("/")[-1] + ".html"
-                    temp_file_path = os.path.join(tempfile.gettempdir(), file_name)
-                    with open(temp_file_path, "w", encoding="utf-8") as f:
-                        f.write(response.text)
-                    html_files.append(temp_file_path)
+                try:
+                    response = requests.get(href)
+                    if response.status_code == 200:
+                        file_name = href.split("/")[-1] + ".html"
+                        temp_file_path = os.path.join(tempfile.gettempdir(), file_name)
+                        with open(temp_file_path, "w", encoding="utf-8") as f:
+                            f.write(response.text)
+                        html_files.append(temp_file_path)
+                except requests.RequestException as e:
+                    logging.error(f"Failed to download {href}: {e}")
+
         logging.info("Downloaded HTML files: %s", html_files)
         return html_files
 
+
     async def process_html_files(self, grouped_html_files):
         url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
+        sem = asyncio.Semaphore(10)  # Limit the number of concurrent requests
         async with aiohttp.ClientSession() as session:
             tasks = []
             for index, file in enumerate(grouped_html_files, start=1):
-                tasks.append(self.post_other_file_upload(session, url, file, sem))
+                tasks.append(post_other_file_upload(session, url, file, sem))
             responses = await asyncio.gather(*tasks)
             for response_list in responses:
                 for i, response_json in enumerate(response_list):
-                    st.session_state['processed_html_files_metadata'][f"index_{str(i)}_{str(response_json['source_name'])}"] = response_json
-        # logging.info("Processed HTML files metadata: %s", st.session_state['processed_html_files_metadata'])
+                    key = f"index_{str(i)}_{str(response_json['source_name'])}"
+                    st.session_state['processed_html_files_metadata'][key] = response_json
+                    logging.debug(f"Added metadata for {key}: {response_json}")
+        logging.info("Processed HTML files metadata: %s", st.session_state['processed_html_files_metadata'])
         return responses
     
     def upload_files(self):
         if 'processed_html_files_metadata' not in st.session_state:
             st.session_state['processed_html_files_metadata'] = {}
 
+        from urllib.parse import urlparse
+
+        def is_valid_url(url):
+            try:
+                result = urlparse(url)
+                return all([result.scheme, result.netloc])
+            except ValueError:
+                return False
+
         @st.experimental_fragment
-        def url_upload(self):
+        def url_upload():
             url_input = st.text_input("Enter URL to scrape and process:")
             if url_input:
+                if not is_valid_url(url_input):
+                    st.error("Invalid URL. Please enter a valid URL.")
+                    return
+
                 start_time = time.time()
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -391,9 +412,28 @@ class FileUploader:
                 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
                 logging.info("Starting URL scraping process...")
                 grouped_html_files = self.extract_links_and_download_html(url_input)
+                if not grouped_html_files:
+                    st.error("No HTML files were downloaded. The website may restrict scraping.")
+                    return
                 logging.info("Running async process for HTML files...")
                 loop.run_until_complete(self.process_html_files(grouped_html_files))
                 logging.info("Finished processing HTML files.")
+
+                # Display the selection options
+                html_files_metadata = st.session_state['processed_html_files_metadata']
+                if html_files_metadata:
+                    st.write("Select the processed HTML files:")
+                    selected_html_files = st.multiselect(
+                        "Select HTML files",
+                        options=list(html_files_metadata.keys()),
+                        format_func=lambda x: html_files_metadata[x]['source_name']
+                    )
+                    st.session_state['selected_files'].extend(selected_html_files)
+                    st.write(f"Selected files: {selected_html_files}")
+                else:
+                    st.error("No processed HTML files found.")
+
+
 
         @st.experimental_fragment
         def files_upload(self):
@@ -411,64 +451,47 @@ class FileUploader:
                 for index, file in enumerate(uploaded_files, start=1):
                     file_base_name = os.path.basename(file.name)
                     file_short_name = f"{index}_{file_base_name if len(file_base_name) <= 20 else file_base_name[:10] + '...' + file_base_name[-10:]}"
+                    file_category = None
+
                     if file.name.endswith(".pdf"):
-                        if 'pdf' not in st.session_state['uploaded_files']:
-                            st.session_state['uploaded_files']['pdf'] = {}
-                        st.session_state['uploaded_files']['pdf'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
-                        if st.session_state['llama_parse_mode'] == 'True':
+                        file_category = 'pdf'
+                    elif file.name.endswith(".png") or file.name.endswith(".jpg"):
+                        file_category = 'img'
+                    elif file.name.endswith(".xlsx"):
+                        file_category = 'excel'
+                    elif file.name.endswith(".csv"):
+                        file_category = 'csv'
+                    else:
+                        file_category = 'others'
+
+                    if file_category:
+                        if file_category not in st.session_state['uploaded_files']:
+                            st.session_state['uploaded_files'][file_category] = {}
+                        st.session_state['uploaded_files'][file_category][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
+
+                        if file_category == 'pdf' and st.session_state['llama_parse_mode'] == 'True':
                             llama_parse_documents = LlamaParse(result_type="markdown").load_data(file_path=file)
                             st.session_state['llama_parse_documents_list'].append(llama_parse_documents)
-                    elif file.name.endswith(".png") or file.name.endswith(".jpg"):
-                        if 'img' not in st.session_state['uploaded_files']:
-                            st.session_state['uploaded_files']['img'] = {}
-                        st.session_state['uploaded_files']['img'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
-                    elif file.name.endswith(".xlsx"):
-                        if 'excel' not in st.session_state['uploaded_files']:
-                            st.session_state['uploaded_files']['excel'] = {}
-                        st.session_state['uploaded_files']['excel'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
-                    elif file.name.endswith(".csv"):
-                        if 'csv' not in st.session_state['uploaded_files']:
-                            st.session_state['uploaded_files']['csv'] = {}
-                        st.session_state['uploaded_files']['csv'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
-                    else:
-                        if 'others' not in st.session_state['uploaded_files']:
-                            st.session_state['uploaded_files']['others'] = {}
-                        st.session_state['uploaded_files']['others'][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
 
+                unprocessed_files = {category: [file_info['file'] for file_info in st.session_state['uploaded_files'].get(category, {}).values() if not file_info['processed_bool']] for category in ['pdf', 'img', 'excel', 'csv', 'others']}
+                
+                loop.run_until_complete(run_all_file_processing(unprocessed_files['pdf'], unprocessed_files['img'], unprocessed_files['excel'], unprocessed_files['csv'], unprocessed_files['others']))
 
-                unprocessed_pdf_files_list = [file_info['file'] for file_info in st.session_state['uploaded_files'].get('pdf', {}).values() if not file_info['processed_bool']]
-                unprocessed_img_files_list = [file_info['file'] for file_info in st.session_state['uploaded_files'].get('img', {}).values() if not file_info['processed_bool']]
-                unprocessed_excel_files_list = [file_info['file'] for file_info in st.session_state['uploaded_files'].get('excel', {}).values() if not file_info['processed_bool']]
-                unprocessed_csv_files_list = [file_info['file'] for file_info in st.session_state['uploaded_files'].get('csv', {}).values() if not file_info['processed_bool']]
-                unprocessed_other_files_list = [file_info['file'] for file_info in st.session_state['uploaded_files'].get('others', {}).values() if not file_info['processed_bool']]
+                for category in unprocessed_files:
+                    for file in unprocessed_files[category]:
+                        st.session_state['uploaded_files'][category][file.name]['processed_bool'] = True
 
-                loop.run_until_complete(run_all_file_processing(unprocessed_pdf_files_list, unprocessed_img_files_list, unprocessed_excel_files_list, unprocessed_csv_files_list, unprocessed_other_files_list))
+                total_unprocessed = sum(len(files) for files in unprocessed_files.values())
+                if total_unprocessed > 0:
+                    st.success(f"Time taken for processing {total_unprocessed} new files: {time.time() - start_time} seconds")
+                total_processed = sum(len(files) for files in st.session_state['uploaded_files'].values() if files)
+                st.success(f"Processed {total_processed} files. Processed File's Names: {format({file_info['file_short_name'] for files in st.session_state['uploaded_files'].values() for file_info in files.values()})}")
 
-                for file in unprocessed_pdf_files_list:
-                    st.session_state['uploaded_files']['pdf'][file.name]['processed_bool'] = True
-
-                for file in unprocessed_img_files_list:
-                    st.session_state['uploaded_files']['img'][file.name]['processed_bool'] = True
-
-                for file in unprocessed_excel_files_list:
-                    st.session_state['uploaded_files']['excel'][file.name]['processed_bool'] = True
-
-                for file in unprocessed_csv_files_list:
-                    st.session_state['uploaded_files']['csv'][file.name]['processed_bool'] = True
-
-                for file in unprocessed_other_files_list:
-                    st.session_state['uploaded_files']['others'][file.name]['processed_bool'] = True
-
-                len_of_unprocessed_files = len(unprocessed_pdf_files_list)+len(unprocessed_img_files_list)+len(unprocessed_excel_files_list)+len(unprocessed_csv_files_list)+len(unprocessed_other_files_list)
-                if len_of_unprocessed_files > 0:
-                    st.success(f"Time taken for processing {len_of_unprocessed_files} new files: {time.time() - start_time} seconds")
-                count_processed_files = sum([len(category_files) for category_files in st.session_state['uploaded_files'].values() if category_files])
-                st.success(f"Processed {count_processed_files} files. Processed File's Names: {format({file_info['file_short_name'] for category_files in st.session_state['uploaded_files'].values() for file_info in category_files.values()})}")
 
 
         # File upload and selection section
         with st.expander("📁 File Upload and Selection:"):
-            url_upload(self)
+            url_upload()
             files_upload(self)
 
             # Process PDF files
@@ -490,10 +513,9 @@ class FileUploader:
                 st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
 
             # Process Excel files
-            for file in st.session_state['processed_excel_files_metadata']:
-                logging.debug(f"Processing Excel file: {file}")
-                file_name = file['FileName']
-                for sheet in file['Sheets']:
+            for file_name, file_data in st.session_state['processed_excel_files_metadata'].items():
+                # logging.debug(f"Processing Excel file: {file_name}")
+                for sheet in file_data['Sheets']:
                     sheet_name = sheet['SheetName']
                     rows = sheet['Rows']
                     for index, record in rows.items():
@@ -510,10 +532,9 @@ class FileUploader:
                         st.session_state['llama_index_node_documents'][source_name][index] = Document(text=str(jointed_text_for_node))
 
             # Process CSV files
-            for file in st.session_state['processed_csv_files_metadata']:
-                logging.debug(f"Processing CSV file: {file}")
-                file_name = file['FileName']
-                for sheet in file['Sheets']:
+            for file_name, file_data in st.session_state['processed_csv_files_metadata'].items():
+                # logging.debug(f"Processing CSV file: {file_name}")
+                for sheet in file_data['Sheets']:
                     sheet_name = sheet['SheetName']
                     rows = sheet['Rows']
                     for index, record in rows.items():
@@ -529,6 +550,7 @@ class FileUploader:
                             st.session_state['llama_index_node_documents'][source_name] = {}
                         st.session_state['llama_index_node_documents'][source_name][index] = Document(text=str(jointed_text_for_node))
 
+
             # Process other files
             for key, value in st.session_state['processed_other_files_metadata'].items():
                 index = value['index']
@@ -539,26 +561,25 @@ class FileUploader:
                     st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
 
             # Process HTML files
-            for url, files_metadata in st.session_state['processed_html_files_metadata'].items():
-                for file_metadata in files_metadata:
-                    index = file_metadata['index']
-                    source_name = file_metadata['source_name']
-                    jointed_text_for_node = str(file_metadata)
-                    unique_key = f"{source_name}_{index}"
-                    if unique_key not in st.session_state['llama_index_node_documents']:
-                        st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
+            for key, file_metadata in st.session_state['processed_html_files_metadata'].items():
+                index = file_metadata['index']
+                source_name = file_metadata['source_name']
+                jointed_text_for_node = str(file_metadata)
+                unique_key = f"{source_name}_{index}"
+                if unique_key not in st.session_state['llama_index_node_documents']:
+                    st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
 
 
-            st.write(st.session_state['llama_index_node_documents'].items())
+            # st.write(st.session_state['llama_index_node_documents'].items())
 
             # Combine all documents (including HTML) into the selection UI
             all_documents = []
             short_key_and_documents_for_selected_files = {}
             for key, value in st.session_state['llama_index_node_documents'].items():
                 short_key = f"{key if len(key) <= 20 else key[:10] + '...' + key[-10:]}"
-                for index, doc in value.items():
-                    all_documents.append(doc)
-                    short_key_and_documents_for_selected_files[short_key] = doc
+                # Since value is a Document, add it directly to the lists
+                all_documents.append(value)
+                short_key_and_documents_for_selected_files[short_key] = value
 
             # Select Files
             st.markdown("🤌 File Selection")
@@ -569,7 +590,7 @@ class FileUploader:
                 key="all_files_chip"  # Unique key for this widget
             )                
 
-            st.write(short_key_and_documents_for_selected_files)
+            # st.write(short_key_and_documents_for_selected_files)
 
             selected_files = sac.chip(
                 items=[
@@ -580,6 +601,7 @@ class FileUploader:
                 multiple=True,
                 key="selected_files_chip"  # Unique key for this widget
             )
+
 
             st.write("📝 Selected files")
 
