@@ -1,484 +1,670 @@
-import os
-import sys
-import json
-import ast
-import re
-import time
-import logging
-import shutil
-from typing import Any, List
-import asyncio
-import aiohttp
-
-import pandas as pd
 import streamlit as st
 import streamlit_antd_components as sac
-from streamlit_searchbox import st_searchbox
-
-import cohere
-import openai
+import os
+import re
+import asyncio
+import aiohttp
+from aiohttp import ClientTimeout
+from openai import AsyncOpenAI
+import instructor
+from pydantic import BaseModel
+from tenacity import retry, stop_after_attempt, wait_exponential
+from typing import Any, Optional, Union
+import json
 from icecream import ic
+import io
+import tempfile
+import time
+import logging
+from llama_index.core import Document
+import requests
+from bs4 import BeautifulSoup
 
-from utils_file_upload import FileUploader
-from utils_parsely_core import process_in_default_mode
-
-from llama_index.core import (
-    SimpleDirectoryReader,
-    ServiceContext,
-    Document,
-    VectorStoreIndex,
-    Settings,
-)
-from llama_index.retrievers.bm25 import BM25Retriever
-from llama_index.llms.openai import OpenAI
-from llama_index.embeddings.openai import OpenAIEmbedding
-from llama_index.llms.azure_openai import AzureOpenAI
-from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
-# from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
-from llama_index.core.retrievers import RecursiveRetriever
-from llama_index.core.query_engine import RetrieverQueryEngine
-from llama_index.core.postprocessor import SentenceTransformerRerank
-from llama_index.core.node_parser import MarkdownElementNodeParser
-from llama_index.indices.managed.vectara import VectaraIndex
-
-from llama_parse import LlamaParse
-
-
-logging.basicConfig(
-    stream=sys.stdout, level=logging.INFO
-)  # logging.DEBUG for more verbose output
-logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
-
-azure_endpoint=st.secrets["AOAIEndpoint"]
-api_key=st.secrets["AOAIKey"]
-api_version="2024-02-15-preview"
-
-llm = AzureOpenAI(
-    model="gpt-4o",
-    deployment_name="gpt-4o",
-    api_key=api_key,
-    azure_endpoint=azure_endpoint,
-    api_version=api_version,
-)
-
-# You need to deploy your own embedding model as well as your own chat completion model
-embed_model = AzureOpenAIEmbedding(
-    model="text-embedding-3-small",
-    deployment_name="text-embedding-3-small",
-    api_key=api_key,
-    azure_endpoint=azure_endpoint,
-    api_version=api_version,
-)
-
-Settings.llm = llm
-Settings.embed_model = embed_model
-
-os.environ['VECTARA_API_KEY'] = 'zwt_BSY6BZDNszBvS4OIN3S1667IxZ2FntdvwWLY-A'
-os.environ['VECTARA_CORPUS_ID'] = 'ragathon'
-os.environ['VECTARA_CUSTOMER_ID'] = '86391301'
-
-# Create Vectara Index
-vectara_index = VectaraIndex()
-
-OpenAI.api_key = st.secrets["OPENAI_API_KEY"]
-
+######################################################################
+################### Test the APIs ####################################
+######################################################################
 
 SUPPORTED_EXTENSIONS = [
     ".docx", ".doc", ".odt", ".pptx", ".ppt", ".xlsx", ".csv", ".tsv", ".eml", ".msg",
     ".rtf", ".epub", ".html", ".xml", ".pdf", ".png", ".jpg", ".jpeg", ".txt"
 ]
 
+# Patch the OpenAI client with Instructor
+aclient = instructor.apatch(AsyncOpenAI(api_key = st.secrets["OPENAI_API_KEY"]))
 
-# if not os.path.exists("./bge_onnx"):
-#     OptimumEmbedding.create_and_save_optimum_model(
-#         "BAAI/bge-base-en-v1.5", "./bge_onnx"
-#     )
+# Define Pydantic model for response validation
+class DocumentInfo(BaseModel):
+    source_name: Union[str, Any]
+    index: Optional[int]
+    title: Union[str, Any]
+    hashtags: Any
+    hypothetical_questions: Any
+    summary: Any
 
-# embed_model = OptimumEmbedding(folder_name="./bge_onnx", embed_batch_size=100)
+# Define a semaphore to limit the number of requests per minute
+openai_request_limit = 10000
+sem = asyncio.Semaphore(openai_request_limit) # 10000 requests per minute (OpenAI's limit) 
+retry_decorator = retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=1, min=1, max=60))
 
-
-def chatallfiles_page():
-
-    ##############################################################################################################
-    ##### OpenAI Chatbot #####
-    ##############################################################################################################
-
-    from openai import OpenAI as OG_OpenAI
-
-    def process_in_default_mode(user_question):
-        main_full_response = ""
-        client = OG_OpenAI()
-
-        message_placeholder = st.empty()
-        responses = client.chat.completions.create(
+#############################################
+######### Better Metadata Generation ########
+@retry_decorator
+async def rate_limited_query_message_info_async(message_data: dict, sem: asyncio.Semaphore) -> DocumentInfo:
+    async with sem:
+        # print(f"Processing message: {str(message_data)}")
+        class_response = await aclient.chat.completions.create(
             model="gpt-3.5-turbo-0125",
+            response_model=DocumentInfo,
             messages=[
-                {"role": "system", "content":   """
-                            Objective:
-                            Think Carefully: Consider whether to respond concisely and directly for simple questions, or to provide a more detailed explanation for complex questions with Prompt Below:
-                            ALWAYS PRIORITIZE CONCISE AND SIMPLE RESPONSE
-
-                            Detailed Prompt:                        
-                            As an experimental Homen's biography writer, you know everything about Homen's life and work. Your goal is to respond on behalf of Homen like a therapist.
-
-                            Utilize a diverse array of knowledge spanning numerous fields including nutrition, sports science, finance, economics, globalization policies, accounting, technology management, high-frequency trading, machine learning, data science, human psychology, investor psychology, and principles from influential thinkers and top business schools. The goal is to simplify complex topics from any domain into an easily understandable format.
-
-                            Rephrase for Clarity: Begin by rephrasing the query to confirm understanding, using the approach, "So, what I'm hearing is...". This ensures that the response is precisely tailored to the query's intent.
-
-                            Concise Initial Response: Provide an immediate, succinct answer, blending insights from various areas of expertise. 
-
-                            List of Key Topics: Identify the top three relevant topics, such as 'Technological Innovation', 'Economic and Market Analysis', or 'Scientific Principles in Everyday Applications'. This step will frame the subsequent detailed explanation.
-
-                            Detailed Explanation and Insights: Expand on the initial response with insights from various fields, using metaphors and simple language, to make the information relatable and easy to understand for everyone.
-
-                            -----------------
-
-                            Response Format:
-
-                                **Question Summary**
-                                **Key Topics**
-                                **Answer**
-                                **Source of Evidence**
-                                **Detailed Explanation and Insights**
-                                **Confidence **
-
-                            **Question Summary** Description: 
-                                Restate the query for clarity and confirmation.
-                            Example: 
-                                "So, what I'm hearing is, you're asking about..."
-
-                            **Key Topics** Description: 
-                                List the top three relevant topics that will frame the detailed explanation.
-                            Example: 
-                                "1. Economic Impact, 2. Technological Advancements, 3. Strategic Decision-Making."
-
-                            **Answer** Description: 
-                                Provide a succinct, direct response and an introspecting question to the rephrased query. Speak about the reason why in terms of opportunity cost, fear and hope driven human psychology, percentage probabilities of desired outcomes, and question back to user to let them introspect. 
-                            Example: 
-                                "The immediate solution to this issue would be... Now here is a question that I have for you... The reason why I ask this question is because..." 
-
-                            **Source of Evidence** Description:
-                                Quote the most relevant part of the search result that answers the user's question.
-
-                            **Detailed Explanation and Insights** Description: 
-                                Expand on the Quick Respond with insights from various fields, using metaphors and simple language. List out specific people and examples.
-                            Example: 
-                                "Drawing from economic theory, particularly the concepts championed by Buffett and Munger, we can understand that..."
-
-                            **Confidence ** Description:
-                                Confidence  of the response, low medium high.
-                            -----------------
-
-                            Example Output:
-                                For a query about investment strategies, the response would start with a rephrased question to ensure understanding, followed by a concise answer about fundamental investment principles. The key topics might include 'Market Analysis', 'Risk Management', and 'Long-term Investment Strategies'. The detailed explanation would weave in insights from finance, economics, and successful investors' strategies, all presented in an easy-to-grasp manner. If applicable, specific investment recommendations or insights would be provided, along with a rationale and confidence . The use of simple metaphors and analogies would make the information relatable and easy to understand for everyone.
-                            """},
-                {"role": "user", "content": f"User Input: {user_question}"}
+                {"role": "system", "content": """
+                    Generate the following schema for the document chunk:
+                    0. source_name: str = File name or URL of the document
+                    1. index: int = index number of the document chunk
+                    2. title: str = Generate a title for the document chunk
+                    3. hashtags: str = Use # to classify common categories
+                    4. hypothetical_questions: List[str] = Relevant questions from the document
+                    5. summary: str = Provide a detailed summary of the document
+                    """},
+                {"role": "user", "content": str(message_data)},
             ],
-            stream=True,
-            seed=42,
+            max_retries=3,
         )
+        json_response = class_response.model_dump()
+        json_response['text_chunk'] = str(message_data).strip().replace('\n\n', '. ')
+        return json_response
+
+######################
+######### PDF ########
+@retry_decorator
+async def post_pdf_upload(session, url, filepath, sem):
+    data = aiohttp.FormData()
+    data.add_field('file',
+                   open(filepath, 'rb'),
+                   filename=os.path.basename(filepath),
+                   content_type='application/pdf')
+
+    timeout = ClientTimeout(total=120)
+    async with sem, session.post(url, data=data, timeout=timeout) as response:
+        response_text = await response.text()
+        response_dict = json.loads(response_text)
+        filename = os.path.basename(filepath)
+        if "extracted_text" in response_dict:
+            extracted_texts = response_dict["extracted_text"]["0"]
+        else:
+            extracted_texts = ["Key 'extracted_text' not found in the response."]  # or handle this situation differently
+
+        tasks = []
+        count = 0
+        for chunk in extracted_texts:
+            post_chunk_content = f'filename: {filename}\n index: {count}\nchunk: {chunk}'
+            task = asyncio.create_task(
+                rate_limited_query_message_info_async(
+                    post_chunk_content,
+                    sem
+                )
+            )
+            tasks.append(task)
+            count += 1
+
+        message_info = await asyncio.gather(*tasks)
+
+        return message_info
         
+async def process_pdf_file(files):
+    if 'processed_pdf_files_metadata' not in st.session_state:
+        st.session_state['processed_pdf_files_metadata'] = {}
+
+    url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for index, file in enumerate(files, start=1):
+            unique_file_name = f"{os.path.splitext(file.name)[0]}_{index}{os.path.splitext(file.name)[1]}"
+            temp_file_path = os.path.join(tempfile.gettempdir(), unique_file_name)
+            with open(temp_file_path, 'wb') as temp_file:
+                temp_file.write(file.read())
+                tasks.append(post_pdf_upload(session, url, temp_file.name, sem))
+
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
         for response in responses:
-            if response.choices[0].delta.content:
-                main_full_response += str(response.choices[0].delta.content).encode('utf-8').decode('utf-8').replace('$', '\$')
-                message_placeholder.markdown(f"**One Time Response**: {main_full_response}")
-        st.markdown("---")
-        return main_full_response
-
-    async def files_bm25_search(query):
-        # BM25 search
-        nodes = await information_retriever.aretrieve(query)
-        output_data = []
-
-        for node in nodes:
-            output = {
-                "Query": query,
-                "Details": node.text,
-                "Confidence ": node.score,
-            }
-
-            output_data.append(output)
-        # ic(output_data)
-        return output_data
-
-    api_key = st.secrets["openai_api_key"]
-
-    async def process_files_data(prompt, search_files_result):
-        system_prompt = """
-            Response Structure:
-            Please use the appropriate JSON schema below for your response.
-
-            json
-            {
-            "User Question": "string",
-            "Key Words": "string",
-            "Response": "string",
-            "Source of Evidence": "string",
-            }
-            User Question: Quote the user's question, no changes.
-            Key Words: Summarize the main topics that the answer covers with Keywords.
-            Response: Provide answer, focus on the quantitative and qualitative aspects of the answer.
-            Source of Evidence: Quote the most relevant part of the search result that answers the user's question.
-        """
-
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
-
-        async with aiohttp.ClientSession() as session:
-            # Create a list to store the tasks
-            tasks = []
-
-            # Create a task for each highlighted_content
-            for result in search_files_result:
-                payload = {
-                    "model": "gpt-3.5-turbo-0125",
-                    "response_format": { "type": "json_object" },
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": system_prompt,
-                        },
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": f"User Needs Input: {prompt}, FILES search result: {result}"},
-                            ]
-                        },
-                    ],
-                    "seed": 42,
-                }
-                task = session.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
-                tasks.append(task)
-
-            responses = await asyncio.gather(*tasks)  # Await the tasks here
-
-            output = []
-            for response in responses:
-                response_json = await response.json()
-                output.append(response_json['choices'][0]['message']['content'])                              
-            # ic(output)
-            return output
-                
-
-    def process_in_files_mode(user_question):
-        main_full_response = ""
-        client = OG_OpenAI()
-
-        # Generate user needs from the question
-        user_needs = ""
-        first_response_message_placeholder = st.empty()
-
-        responses = client.chat.completions.create(
-            model="gpt-3.5-turbo-0125",
-            messages=[
-                {"role": "system", "content": f"This is process_in_files_mode. Rephrase the User Input. Extrapolate the user needs in a key topic list. Begin with 'Here is what I am understanding from your question...'"},
-                {"role": "user", "content": f"User Input: {user_question}"}
-            ],
-            stream=True,
-            seed=42,
-        )
-        for response in responses:
-            # if not None
-            if response.choices[0].delta.content:
-                user_needs += str(response.choices[0].delta.content).replace('$', '\$')
-                first_response_message_placeholder.markdown(f"**User Needs**: {user_needs}")
-        st.markdown("---")
-        st.session_state.main_conversation.append({"role": "Assistant", "content": f"""**User Needs**: 
-                                                                                        {user_needs}"""})
-        
-        main_full_response += user_needs
-
-        # Search in FILESs
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            # st.toast(f"Searching in FILES")
-            search_files_output_data_list = loop.run_until_complete(files_bm25_search(query=user_needs))
-            ##### Dense: Cohere Rerank #####
-            co = cohere.Client(st.secrets["COHERE_API_KEY"])
-            rerank_search_files_output_data_list = [{'text': str({"result": result}).replace('$', '\$')} for result in search_files_output_data_list]
-            rerank_search_files_output_data_list_results = co.rerank(model="rerank-english-v2.0",
-                                    query=user_needs,
-                                    documents=rerank_search_files_output_data_list,
-                                    top_n=10)
-            ##### Dense: Cohere Rerank #####
-            processed_data = loop.run_until_complete(process_files_data(user_needs, rerank_search_files_output_data_list_results))
-            main_full_response += "\n" + str(processed_data)
-        finally:
-            loop.close()
-
-        # ic(main_full_response)
-
-        # Final Response with GPT-4-0125-Preview
-
-        final_response = ""
-        second_response_message_placeholder = st.empty()
-        responses = client.chat.completions.create(
-            model="gpt-4-0125-preview",
-            messages=[
-                {"role": "system", "content": f"Highly detailed **Answer**, rest of the response should be concise, unless user asks for more details. Make sure to rephrase the User Input. Extrapolate the user needs in a key topic list. Utilize FILES Search Result. Begin with '**Question Summary**, **Key Topics**, **Answer**, **Source of Evidence**, **Confidence ** (low medium high)...'"},
-                {"role": "user", "content": f"User Input: {user_question}, User Needs: {user_needs}, FILES Search Result: {processed_data}, Main Full Response: {main_full_response}"}
-            ],
-            stream=True,
-            seed=42,
-        )
-        for response in responses:
-            # if not None
-            if response.choices[0].delta.content:
-                final_response += str(response.choices[0].delta.content).encode('utf-8').decode('utf-8').replace('$', '\$')
-                second_response_message_placeholder.markdown(f"**Final Response**: {final_response}")
-        st.markdown("---")
-        return final_response
-
-    ### Title and Description
-    st.title("💬 Chat for All Files")
-    st.toast("🌱 Hi! I’m Parsely and I’m here to assist your document analysis needs. Type below to get started.")
-
-    ### FileUploader from utils.py
-    @st.experimental_fragment    
-    def file_uploader_fragment():
-        uploader = FileUploader(SUPPORTED_EXTENSIONS)
-        uploader.upload_files()
-
-    file_uploader_fragment()
-    st.toast(f'📁 {len(st.session_state["selected_files"])} files uploaded')
-
-    ### Conversation Memory and Summary
-    if "main_conversation" not in st.session_state:
-        st.session_state["main_conversation"] = []
-
-    if "main_conversation_memory" not in st.session_state:
-        st.session_state["main_conversation_memory"] = []
-        st.session_state["main_conversation_memory"].append("")
-
-    ### Llama_Parse Mode
-    llama_parse_mode = sac.switch(label='Llama_Parse Mode (Only Indexes File if On before Uploadfile)', align='start', size='md')
-    st.session_state["llama_parse_mode"] = llama_parse_mode
-    # # ic(st.session_state["llama_parse_mode"])
-
-    ### Vectara Query Mode
-    vectara_query_mode = sac.switch(label='Vectara Query Mode', align='start', size='md')
-    st.session_state["vectara_query_mode"] = vectara_query_mode
-    # # ic(st.session_state["vectara_query_mode"])
-
-    ### Reset Conversation
-    if st.button("Reset Conversation"):
-        st.session_state["main_conversation"] = []
-        st.session_state["main_conversation_memory"] = []
-        st.session_state["main_conversation_memory"].append("")
-
-    ### Display previous conversation messages
-    if st.session_state["main_conversation"]:
-        for message in st.session_state.main_conversation:
-            if message["role"] == "User":
-                with st.chat_message("User"):
-                    st.markdown("User: ")
-                    st.markdown(message["content"])
-            elif message["role"] == "Assistant":
-                with st.chat_message("Assistant"):
-                    st.markdown("Assistant: ")
-                    st.markdown(message["content"])
-
-    ### Chat Interface
-    user_question = st.chat_input("Ask a question about the selected PDF content:")
-
-    if user_question:
-        with st.chat_message("User"):
-            st.markdown("User: ")
-            st.markdown(user_question)
-            st.session_state.main_conversation.append({"role": "User", "content": user_question})
-
-        with st.chat_message("Assistant"):
-            if not st.session_state['selected_files']:
-                # st.toast(f"No files selected, chat in default mode")
-                default_response_with_custom_prompt = process_in_default_mode(user_question)
-                st.session_state.main_conversation.append({"role": "Assistant", "content": default_response_with_custom_prompt})
+            if isinstance(response, Exception):
+                logging.error(f"Error occurred: {response}")
             else:
-                # st.toast(f"Files selected, chat in files retrieval mode")
-                for _ in range(3):  # Retry up to 3 times
-                    try:
-                        llama_index_node_documents = []
-                        documents_referred = []
-                        # page_1_st_session_state_selected_files = st.session_state['selected_files']
-                        # # ic(page_1_st_session_state_selected_files)
-                        for document_obj in st.session_state['selected_files']:
-                            # Assuming 'selected_files' is directly storing Document objects
-                            # if document_obj has items
-                            if isinstance(document_obj, dict):
-                                for id, doc in document_obj.items():
-                                    # ic(doc)
-                                    llama_index_node_documents.append(doc)  # No need to recreate Document(text=doc.text)
-                                    if vectara_query_mode:
-                                        vectara_index.insert_file(file_path= "", metadata= {id: doc})
+                for i, response_json in enumerate(response):
+                    st.session_state['processed_pdf_files_metadata'][f"index_{i}_{response_json['source_name']}"] = response_json
 
-                                    try:
-                                        # ic(doc)
-                                        parsed_doc = ast.literal_eval(doc.text)
-                                        documents_referred.append(f"{parsed_doc['source_name']} index: {parsed_doc['index']}")
-                                    except ValueError as e:
-                                        st.toast(f"Error parsing document text: {e}")
-                            else:
-                                # just use the document_obj 
-                                llama_index_node_documents.append(document_obj)
-                                try:
-                                    parsed_doc = ast.literal_eval(document_obj.text)
-                                    documents_referred.append(f"{parsed_doc['source_name']} index: {parsed_doc['index']}")
-                                except ValueError as e:
-                                    st.toast(f"Error parsing document text: {e}")
-                                    
-                        # ic(documents_referred)
-                        service_context = ServiceContext.from_defaults(embed_model=embed_model)
-                        nodes = service_context.node_parser.get_nodes_from_documents(llama_index_node_documents)
-                        similarity_top_k_value = len(llama_index_node_documents) // 2 // 2
-                        similarity_top_k_value = max(10, similarity_top_k_value)
-                        
-                        information_retriever = BM25Retriever.from_defaults(nodes=nodes, similarity_top_k=similarity_top_k_value)
+        return st.session_state['processed_pdf_files_metadata']
 
-                        break
-                    except ValueError as e:
-                        if str(e) == "Please pass exactly one of index, nodes, or docstore.":
-                            st.toast("Please wait for 5 seconds")
-                            time.sleep(5)  # Wait for 5 seconds before retrying
-                        else:
-                            raise  # If the error is not the one we're expecting, re-raise it
+# print(f"Time taken for processing two files: {two_files_time}")
+# print(f"Time taken for processing all files: {all_files_time}")
+# # Time taken for processing two files: 37.01477813720703
+# # Time taken for processing four files: 54.508569955825806
+# Depends on available resources, size of the files, and the number of files to process.
 
-                user_question += f". Use the documents referred: {documents_referred}"
-                main_full_response = process_in_files_mode(user_question)
-                st.session_state.main_conversation.append({"role": "Assistant", "content": main_full_response})
-                if llama_parse_mode:
-                    llama_parse_documents = LlamaParse(result_type="markdown").load_data('assets/files/uber_10q_march_2022.pdf')
-                    node_parser = MarkdownElementNodeParser(llm=OpenAI(model="gpt-3.5-turbo-0125"), num_workers=8)
-                    nodes = node_parser.get_nodes_from_documents(llama_parse_documents)
-                    base_nodes, node_mapping = node_parser.get_base_nodes_and_mappings(nodes)
-                    ctx = ServiceContext.from_defaults(
-                        llm=OpenAI(model="gpt-4-0125-preview"), 
-                        embed_model=OpenAIEmbedding(model="text-embedding-3-small"), 
-                        chunk_size=512
+######################################################################
+########## Image #####################################################
+@retry_decorator
+async def post_image_upload(session, url, filepath, sem):
+    logging.info(f"Starting upload for {filepath}")
+    data = aiohttp.FormData()
+    data.add_field('file',
+                   open(filepath, 'rb'),
+                   filename=os.path.basename(filepath),
+                   content_type='application/octet-stream')
+
+    timeout = ClientTimeout(total=300)  # Increase the timeout to 120 seconds
+    start_time = time.time()
+    try:
+        async with sem, session.post(url, data=data, timeout=timeout) as response:
+            logging.info(f"Finished upload for {filepath}")
+            response_text = await response.text()
+            # use response_text for the rate_limited_query_message_info_async
+            post_chunk_content = response_text
+            message_info = await rate_limited_query_message_info_async(post_chunk_content, sem)
+
+            return message_info  # return the structured message info
+    except Exception as e:
+        logging.error(f"Error occurred: {e}")
+    finally:
+        end_time = time.time()
+        logging.info(f"Execution time: {end_time - start_time} seconds")
+
+async def process_image_file(files):
+    url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for index, file in enumerate(files, start=1):
+            # Create a unique file name with the same base name as the uploaded file and the index as a unique identifier
+            unique_file_name = f"{os.path.splitext(file.name)[0]}_{index}{os.path.splitext(file.name)[1]}"
+            temp_file_path = os.path.join(tempfile.gettempdir(), unique_file_name)
+            # Write the uploaded file's contents to the temporary file
+            with open(temp_file_path, 'wb') as temp_file:
+                temp_file.write(file.read())
+                # Add a task to post the temporary file
+                tasks.append(post_image_upload(session, url, temp_file.name, sem))
+        responses = await asyncio.gather(*tasks)
+        # ic(responses)
+        # print(type(responses))
+        for i, response_list in enumerate(responses):
+            # store in session state
+            # ic(response_list)
+            st.session_state['processed_image_files_metadata'][f"index_{str(i)}_{str(response_list['source_name'])}"] = response_list
+ 
+        return responses
+
+######################################################################
+########## Excel & CSV #####################################################
+import pandas as pd
+import numpy as np
+
+# Corrected: Initialize processed files metadata as dictionaries
+if 'processed_excel_files_metadata' not in st.session_state:
+    st.session_state['processed_excel_files_metadata'] = {}
+
+if 'processed_csv_files_metadata' not in st.session_state:
+    st.session_state['processed_csv_files_metadata'] = {}
+
+# Corrected: Processing of Excel files
+async def process_excel_file(files):
+    for file in files:
+        file_name = file.name
+        excel_file = pd.ExcelFile(file)
+        sheet_names = excel_file.sheet_names
+        sheet_data = []
+
+        for sheet in sheet_names:
+            df = pd.read_excel(excel_file, sheet_name=sheet)
+            rows = df.to_dict('index')
+            sheet_data.append({
+                'SheetName': sheet,
+                'Rows': rows,
+                'DataFrame': df
+            })
+
+        st.session_state['processed_excel_files_metadata'][file_name] = {
+            'FileName': file_name,
+            'Sheets': sheet_data
+        }
+
+    return st.session_state['processed_excel_files_metadata']
+
+# Corrected: Processing of CSV files
+async def process_csv_file(files):
+    for file in files:
+        file_name = file.name
+        df = pd.read_csv(file)
+        rows = df.to_dict('index')
+        sheet_data = [{'SheetName': 'na', 'Rows': rows, 'DataFrame': df}]
+
+        st.session_state['processed_csv_files_metadata'][file_name] = {
+            'FileName': file_name,
+            'Sheets': sheet_data
+        }
+
+    return st.session_state['processed_csv_files_metadata']
+
+
+######################################################################
+########## Other Files ###############################################
+# For other file types, you can use the same pattern as the PDF processing
+@retry_decorator
+async def post_other_file_upload(session, url, filepath, sem):
+    data = aiohttp.FormData()
+    data.add_field('file',
+                   open(filepath, 'rb'),
+                   filename=os.path.basename(filepath),
+                   content_type='application/octet-stream')
+
+    timeout = ClientTimeout(total=120)  # Increase the timeout to 120 seconds
+    async with session.post(url, data=data, timeout=timeout) as response:
+        logging.info(f"Finished upload for {filepath}")
+        response_text = await response.text()
+        response_dict = json.loads(response_text)
+        filename = os.path.basename(filepath)
+        if "extracted_text" in response_dict:
+            extracted_texts = response_dict["extracted_text"]["0"]
+        else:
+            extracted_texts = ["Key 'extracted_text' not found in the response."]  # or handle this situation differently
+
+        tasks = []
+        count = 0
+        for chunk in extracted_texts:
+            post_chunk_content = f'filename: {filename}\n\n index: {count}\n\n chunk: {chunk}'
+            task = asyncio.create_task(
+                rate_limited_query_message_info_async(
+                    post_chunk_content,
+                    sem
+                )
+            )
+            tasks.append(task)
+            count += 1
+
+        message_info = await asyncio.gather(*tasks)
+
+        return message_info  # return the structured message info
+
+async def process_other_file(files):
+    if 'processed_other_files_metadata' not in st.session_state:
+        st.session_state['processed_other_files_metadata'] = {}
+
+    url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for index, file in enumerate(files, start=1):
+            unique_file_name = f"{os.path.splitext(file.name)[0]}_{index}{os.path.splitext(file.name)[1]}"
+            temp_file_path = os.path.join(tempfile.gettempdir(), unique_file_name)
+            with open(temp_file_path, 'wb') as temp_file:
+                temp_file.write(file.read())
+                tasks.append(post_other_file_upload(session, url, temp_file.name, sem))
+
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
+        for response in responses:
+            if isinstance(response, Exception):
+                logging.error(f"Error occurred: {response}")
+            else:
+                for i, response_json in enumerate(response):
+                    st.session_state['processed_other_files_metadata'][f"index_{i}_{response_json['source_name']}"] = response_json
+
+        return st.session_state['processed_other_files_metadata']
+
+######################################################################
+########## Function to run all above #############################################
+async def run_all_file_processing(unprocessed_pdf_files_list, unprocessed_img_files_list, unprocessed_excel_files_list, unprocessed_csv_files_list, unprocessed_other_files_list):
+    await asyncio.gather(
+        process_pdf_file(unprocessed_pdf_files_list),
+        process_image_file(unprocessed_img_files_list),
+        process_excel_file(unprocessed_excel_files_list),
+        process_csv_file(unprocessed_csv_files_list),
+        process_other_file(unprocessed_other_files_list),
+    )
+
+######################################################################
+########## File Uploader CLASS #############################################
+class FileUploader:
+    def __init__(self, supported_extensions):
+        self.supported_extensions = supported_extensions
+        if 'uploaded_files' not in st.session_state:
+            st.session_state['uploaded_files'] = {}
+        if 'selected_files' not in st.session_state:
+            st.session_state['selected_files'] = []
+        if 'processed_files_metadata' not in st.session_state:
+            st.session_state['processed_pdf_files_metadata'] = {}
+        if 'processed_image_files_metadata' not in st.session_state:
+            st.session_state['processed_image_files_metadata'] = {}
+        if 'processed_excel_files_metadata' not in st.session_state:
+            st.session_state['processed_excel_files_metadata'] = {}
+        if 'processed_csv_files_metadata' not in st.session_state:
+            st.session_state['processed_csv_files_metadata'] = {}
+        if 'processed_other_files_metadata' not in st.session_state:
+            st.session_state['processed_other_files_metadata'] = {}
+        if 'processed_html_files_metadata' not in st.session_state:
+            st.session_state['processed_html_files_metadata'] = {}
+        if 'llama_index_node_documents' not in st.session_state:
+            st.session_state['llama_index_node_documents'] = {}
+        if 'llama_parse_documents_list' not in st.session_state:
+            st.session_state['llama_parse_documents_list'] = []
+
+    @st.cache_data
+    def extract_links_and_download_html(_self, url):
+        # Improved sanitize_filename function to handle URLs ending with a slash
+        def sanitize_filename(filename):
+            if not filename:  # If filename is empty, provide a default name
+                filename = "default_name"
+            sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename)
+            return sanitized.strip('_')
+
+        logging.info("Extracting links from URL: %s", url)
+
+        html_files = []
+        file_counter = {}
+
+        # Function to generate unique filename
+        def generate_unique_filename(base_name):
+            if base_name in file_counter:
+                file_counter[base_name] += 1
+            else:
+                file_counter[base_name] = 0
+            return f"{base_name}_{file_counter[base_name]}.html"
+
+        # Adjust URL splitting logic to handle URLs ending with a slash
+        url_parts = url.rstrip('/').split('/')  # Remove trailing slash if present
+        base_name = sanitize_filename(url_parts[-1] if url_parts[-1] else url_parts[-2])
+
+        # Download the main URL's HTML content
+        try:
+            response = requests.get(url)
+            if response.status_code == 200:
+                file_name = generate_unique_filename(base_name)
+                temp_file_path = os.path.join(tempfile.gettempdir(), file_name)
+                with open(temp_file_path, "w", encoding="utf-8") as f:
+                    f.write(response.text)
+                html_files.append(temp_file_path)
+            else:
+                logging.error(f"Failed to download {url}: {response.status_code}")
+        except requests.RequestException as e:
+            logging.error(f"Failed to download {url}: {e}")
+
+        # The rest of the function remains unchanged
+
+        logging.info("Downloaded HTML files: %s", html_files)
+        return html_files
+
+
+    async def process_html_files(self, grouped_html_files):
+        url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
+        sem = asyncio.Semaphore(10)  # Limit the number of concurrent requests
+        async with aiohttp.ClientSession() as session:
+            tasks = []
+            for index, file in enumerate(grouped_html_files, start=1):
+                tasks.append(post_other_file_upload(session, url, file, sem))
+            responses = await asyncio.gather(*tasks)
+            for response_list in responses:
+                for i, response_json in enumerate(response_list):
+                    key = f"index_{str(i)}_{str(response_json['source_name'])}"
+                    st.session_state['processed_html_files_metadata'][key] = response_json
+                    logging.debug(f"Added metadata for {key}: {response_json}")
+        logging.info("Processed HTML files metadata: %s", st.session_state['processed_html_files_metadata'])
+        return responses
+
+    def upload_files(self):
+        if 'processed_html_files_metadata' not in st.session_state:
+            st.session_state['processed_html_files_metadata'] = {}
+
+        from urllib.parse import urlparse
+
+        def is_valid_url(url):
+            try:
+                result = urlparse(url)
+                return all([result.scheme, result.netloc])
+            except ValueError:
+                return False
+
+        def url_upload():
+            url_input = st.text_input("Enter URL to scrape and process:")
+            
+            if url_input:
+                if not is_valid_url(url_input):
+                    st.error("Invalid URL. Please enter a valid URL.")
+                    return
+
+                start_time = time.time()
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                os.environ["LLAMA_CLOUD_API_KEY"] = st.secrets['LLAMA_CLOUD_API_KEY']
+                os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+                logging.info("Starting URL scraping process...")
+                
+                st.toast(f'Starting URL scraping process for {url_input}...')
+                grouped_html_files = self.extract_links_and_download_html(url_input)
+                
+                if not grouped_html_files:
+                    st.error("No HTML files were downloaded. The website may restrict scraping.")
+                    return
+
+                logging.info("Running async process for HTML files...")
+                loop.run_until_complete(self.process_html_files(grouped_html_files))
+                logging.info("Finished processing HTML files.")
+
+                # Group processed HTML files by URL link
+                html_files_metadata = st.session_state['processed_html_files_metadata']
+                grouped_by_url = {}
+                for key, metadata in html_files_metadata.items():
+                    url = metadata['source_name']  # Assuming 'source_name' is the URL
+                    if url not in grouped_by_url:
+                        grouped_by_url[url] = []
+                    grouped_by_url[url].append(metadata)
+
+                st.session_state['grouped_html_files_by_url'] = grouped_by_url
+
+                # Display the selection options based on URL
+                if grouped_by_url:
+                    st.write("Select the processed HTML files based on URL:")
+                    selected_urls = st.multiselect(
+                        "Select URLs",
+                        options=list(grouped_by_url.keys()),
+                        default=[url_input] if url_input in grouped_by_url else []
                     )
-                    recursive_index = VectorStoreIndex(nodes=base_nodes, service_context=ctx)
-                    # raw_index = VectorStoreIndex.from_documents(llama_parse_documents, service_context=ctx)
-                    retriever = RecursiveRetriever(
-                        "vector", 
-                        retriever_dict={
-                            "vector": recursive_index.as_retriever(similarity_top_k=15)
-                        },
-                        node_dict=node_mapping,
-                    )
-                    reranker = SentenceTransformerRerank(top_n=5, model="BAAI/bge-reranker-large")
-                    recursive_query_engine = RetrieverQueryEngine.from_args(retriever, node_postprocessors=[reranker], service_context=ctx)                                            
-                    response_2 = recursive_query_engine.query(user_question)
-                    # ic(response_2)
-                    # st.session_state.main_conversation.append({"role": "Assistant", "content": "**Llama Parse Result: \n**"+str(response_2)})
-                    user_question += f". Add on the Llama Parse Response Result: {str(response_2)}"
-                    main_full_response_with_llama_parse = process_in_files_mode(user_question)
-                    st.session_state.main_conversation.append({"role": "Assistant", "content": main_full_response_with_llama_parse})
-                if vectara_query_mode:
-                    query_engine = vectara_index.as_query_engine(similarity_top_k=5)
-                    vectara_response = query_engine.query(user_question)
-                    user_question += f". Add on the Vectara Query Response: {str(vectara_response)}"
-                    main_full_response_with_vectara = process_in_files_mode(user_question)
-                    st.session_state.main_conversation.append({"role": "Assistant", "content": main_full_response_with_vectara})
-                # encode decoded string to utf-8
-                # st.markdown("Assistant: ")
-                # st.markdown(main_full_response)
+                    # Collect all chunks from the selected URLs
+                    selected_html_files = []
+                    for url in selected_urls:
+                        selected_html_files.extend(grouped_by_url[url])
 
-# # ic(st.session_state['selected_files'])
+                    st.session_state['selected_files'].extend(selected_html_files)
+                    st.write(f"Selected files: {selected_urls}")
+                else:
+                    st.error("No processed HTML files found.")
+
+        def files_upload(self):
+            # Handle file uploads and set processed_bool
+            uploaded_files = st.file_uploader("📥 Limit < 2000MB", type=SUPPORTED_EXTENSIONS, accept_multiple_files=True)
+            if uploaded_files:
+                start_time = time.time()
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                os.environ["LLAMA_CLOUD_API_KEY"] = st.secrets['LLAMA_CLOUD_API_KEY']
+                os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+
+                from llama_parse import LlamaParse
+
+                for index, file in enumerate(uploaded_files, start=1):
+                    file_base_name = os.path.basename(file.name)
+                    file_short_name = f"{index}_{file_base_name if len(file_base_name) <= 20 else file_base_name[:10] + '...' + file_base_name[-10:]}"
+                    file_category = None
+
+                    if file.name.endswith(".pdf"):
+                        file_category = 'pdf'
+                    elif file.name.endswith(".png") or file.name.endswith(".jpg"):
+                        file_category = 'img'
+                    elif file.name.endswith(".xlsx"):
+                        file_category = 'excel'
+                    elif file.name.endswith(".csv"):
+                        file_category = 'csv'
+                    else:
+                        file_category = 'others'
+
+                    if file_category:
+                        if file_category not in st.session_state['uploaded_files']:
+                            st.session_state['uploaded_files'][file_category] = {}
+                        st.session_state['uploaded_files'][file_category][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
+
+                        if file_category == 'pdf' and st.session_state['llama_parse_mode'] == 'True':
+                            llama_parse_documents = LlamaParse(result_type="markdown").load_data(file_path=file)
+                            st.session_state['llama_parse_documents_list'].append(llama_parse_documents)
+
+                unprocessed_files = {category: [file_info['file'] for file_info in st.session_state['uploaded_files'].get(category, {}).values() if not file_info['processed_bool']] for category in ['pdf', 'img', 'excel', 'csv', 'others']}
+                
+                loop.run_until_complete(run_all_file_processing(unprocessed_files['pdf'], unprocessed_files['img'], unprocessed_files['excel'], unprocessed_files['csv'], unprocessed_files['others']))
+
+                for category in unprocessed_files:
+                    for file in unprocessed_files[category]:
+                        st.session_state['uploaded_files'][category][file.name]['processed_bool'] = True
+
+                total_unprocessed = sum(len(files) for files in unprocessed_files.values())
+                if total_unprocessed > 0:
+                    st.success(f"Time taken for processing {total_unprocessed} new files: {time.time() - start_time} seconds")
+                total_processed = sum(len(files) for files in st.session_state['uploaded_files'].values() if files)
+                st.success(f"Processed {total_processed} files. Processed File's Names: {format({file_info['file_short_name'] for files in st.session_state['uploaded_files'].values() for file_info in files.values()})}")
+
+        # File upload and selection section
+        with st.expander("📁 File Upload and Selection:"):
+            url_upload()
+            files_upload(self)
+
+            # Process PDF files
+            for key, value in st.session_state['processed_pdf_files_metadata'].items():
+                index = value['index']
+                source_name = value['source_name']
+                jointed_text_for_node = str(value)
+                if source_name not in st.session_state['llama_index_node_documents']:
+                    st.session_state['llama_index_node_documents'][source_name] = {}
+                st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
+
+            # Process image files
+            for key, value in st.session_state['processed_image_files_metadata'].items():
+                index = value['index']
+                source_name = value['source_name']
+                jointed_text_for_node = str(value)
+                if source_name not in st.session_state['llama_index_node_documents']:
+                    st.session_state['llama_index_node_documents'][source_name] = {}
+                st.session_state['llama_index_node_documents'][source_name][index] = Document(text=jointed_text_for_node)
+
+            # Process Excel files
+            for file_name, file_data in st.session_state['processed_excel_files_metadata'].items():
+                # logging.debug(f"Processing Excel file: {file_name}")
+                for sheet in file_data['Sheets']:
+                    sheet_name = sheet['SheetName']
+                    rows = sheet['Rows']
+                    for index, record in rows.items():
+                        record_texts = [f"{k}: {v}" for k, v in record.items()]
+                        joint_text = '. '.join(record_texts)
+                        jointed_text_for_node = {
+                            'index': index,
+                            'source_name': f"{file_name}_{sheet_name}",
+                            'text_chunk': joint_text,
+                        }
+                        source_name = f"{file_name}_{sheet_name}"
+                        if source_name not in st.session_state['llama_index_node_documents']:
+                            st.session_state['llama_index_node_documents'][source_name] = {}
+                        st.session_state['llama_index_node_documents'][source_name][index] = Document(text=str(jointed_text_for_node))
+
+            # Process CSV files
+            for file_name, file_data in st.session_state['processed_csv_files_metadata'].items():
+                # logging.debug(f"Processing CSV file: {file_name}")
+                for sheet in file_data['Sheets']:
+                    sheet_name = sheet['SheetName']
+                    rows = sheet['Rows']
+                    for index, record in rows.items():
+                        record_texts = [f"{k}: {v}" for k, v in record.items()]
+                        joint_text = '. '.join(record_texts)
+                        jointed_text_for_node = {
+                            'index': index,
+                            'source_name': f"{file_name}_{sheet_name}",
+                            'text_chunk': joint_text,
+                        }
+                        source_name = f"{file_name}_{sheet_name}"
+                        if source_name not in st.session_state['llama_index_node_documents']:
+                            st.session_state['llama_index_node_documents'][source_name] = {}
+                        st.session_state['llama_index_node_documents'][source_name][index] = Document(text=str(jointed_text_for_node))
+
+
+            # Process other files
+            for key, value in st.session_state['processed_other_files_metadata'].items():
+                index = value['index']
+                source_name = value['source_name']
+                jointed_text_for_node = str(value)
+                unique_key = f"{source_name}_{index}"
+                if unique_key not in st.session_state['llama_index_node_documents']:
+                    st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
+
+            # Process HTML files
+            grouped_by_url = st.session_state.get('grouped_html_files_by_url', {})
+            for url, file_metadatas in grouped_by_url.items():
+                for file_metadata in file_metadatas:
+                    index = file_metadata['index']
+                    source_name = file_metadata['source_name']
+                    jointed_text_for_node = str(file_metadata)
+                    unique_key = f"{source_name}_{index}"
+                    if unique_key not in st.session_state['llama_index_node_documents']:
+                        st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
+
+
+
+            # st.write(st.session_state['llama_index_node_documents'].items())
+
+            # Combine all documents (including HTML) into the selection UI
+            all_documents = []
+            short_key_and_documents_for_selected_files = {}
+            for key, value in st.session_state['llama_index_node_documents'].items():
+                short_key = f"{key if len(key) <= 20 else key[:10] + '...' + key[-10:]}"
+                # Since value is a Document, add it directly to the lists
+                all_documents.append(value)
+                short_key_and_documents_for_selected_files[short_key] = value
+
+            # Select Files
+            st.markdown("🤌 File Selection")
+            all_selected_files = sac.chip(
+                items=[sac.ChipItem(label="All Files")],
+                radius='md',
+                multiple=True,
+                key="all_files_chip"  # Unique key for this widget
+            )                
+
+            # st.write(short_key_and_documents_for_selected_files)
+
+            selected_files = sac.chip(
+                items=[
+                    sac.ChipItem(label=short_key) 
+                    for short_key in short_key_and_documents_for_selected_files.keys()
+                ],
+                radius='md',
+                multiple=True,
+                key="selected_files_chip"  # Unique key for this widget
+            )
+
+
+            st.write("📝 Selected files")
+
+            if "All Files" in all_selected_files:
+                st.session_state['selected_files'] = list(st.session_state['llama_index_node_documents'].values())
+                st.write("Selected: All Files")
+
+            if "All Files" not in all_selected_files:
+                selected_documents = [short_key_and_documents_for_selected_files[sk] for sk in selected_files]
+                st.session_state['selected_files'] = selected_documents
+
+            st.info("Select All Files to index all documents. Unselect All Files & Select individual files to index only those files.")
+
+
+            if st.button("Reset Files"):
+                st.session_state['uploaded_files'] = {}
+                st.session_state['selected_files'] = []
+                st.session_state['processed_pdf_files_metadata'] = {}
+                st.session_state['processed_image_files_metadata'] = {}
+                st.session_state['processed_excel_files_metadata'] = {}
+                st.session_state['processed_csv_files_metadata'] = {}
+                st.session_state['processed_other_files_metadata'] = {}
+                st.session_state['processed_html_files_metadata'] = {}
+                st.session_state['llama_index_node_documents'] = {}
+                st.session_state['llama_parse_documents_list'] = []
+                st.rerun()
+
+            return st.session_state['uploaded_files'], st.session_state['selected_files'], st.session_state['llama_parse_documents_list']
