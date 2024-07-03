@@ -423,17 +423,31 @@ class FileUploader:
                 loop.run_until_complete(self.process_html_files(grouped_html_files))
                 logging.info("Finished processing HTML files.")
 
-                # Display the selection options
+                # Group processed HTML files by URL link
                 html_files_metadata = st.session_state['processed_html_files_metadata']
-                if html_files_metadata:
-                    st.write("Select the processed HTML files:")
-                    selected_html_files = st.multiselect(
-                        "Select HTML files",
-                        options=list(html_files_metadata.keys()),
-                        format_func=lambda x: html_files_metadata[x]['source_name']
+                grouped_by_url = {}
+                for key, metadata in html_files_metadata.items():
+                    url = metadata['source_name']  # Assuming 'source_name' is the URL
+                    if url not in grouped_by_url:
+                        grouped_by_url[url] = []
+                    grouped_by_url[url].append(metadata)
+
+                st.session_state['grouped_html_files_by_url'] = grouped_by_url
+
+                # Display the selection options based on URL
+                if grouped_by_url:
+                    st.write("Select the processed HTML files based on URL:")
+                    selected_urls = st.multiselect(
+                        "Select URLs",
+                        options=list(grouped_by_url.keys())
                     )
+                    # Collect all chunks from the selected URLs
+                    selected_html_files = []
+                    for url in selected_urls:
+                        selected_html_files.extend(grouped_by_url[url])
+
                     st.session_state['selected_files'].extend(selected_html_files)
-                    st.write(f"Selected files: {selected_html_files}")
+                    st.write(f"Selected files: {selected_urls}")
                 else:
                     st.error("No processed HTML files found.")
 
@@ -565,13 +579,16 @@ class FileUploader:
                     st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
 
             # Process HTML files
-            for key, file_metadata in st.session_state['processed_html_files_metadata'].items():
-                index = file_metadata['index']
-                source_name = file_metadata['source_name']
-                jointed_text_for_node = str(file_metadata)
-                unique_key = f"{source_name}_{index}"
-                if unique_key not in st.session_state['llama_index_node_documents']:
-                    st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
+            grouped_by_url = st.session_state.get('grouped_html_files_by_url', {})
+            for url, file_metadatas in grouped_by_url.items():
+                for file_metadata in file_metadatas:
+                    index = file_metadata['index']
+                    source_name = file_metadata['source_name']
+                    jointed_text_for_node = str(file_metadata)
+                    unique_key = f"{source_name}_{index}"
+                    if unique_key not in st.session_state['llama_index_node_documents']:
+                        st.session_state['llama_index_node_documents'][unique_key] = Document(text=jointed_text_for_node)
+
 
 
             # st.write(st.session_state['llama_index_node_documents'].items())
