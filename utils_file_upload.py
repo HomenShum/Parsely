@@ -420,6 +420,10 @@ class FileUploader:
 
         def url_upload():
             url_input = st.text_input("Enter URL to scrape and process:")
+
+            # Check if there's no new URL input
+            if url_input == st.session_state.get('last_processed_url', ''):
+                return  # No new input, return early
             
             if url_input:
                 if not is_valid_url(url_input):
@@ -478,9 +482,22 @@ class FileUploader:
                 else:
                     st.error("No processed HTML files found.")
 
+                # Update last processed URL
+                st.session_state['last_processed_url'] = url_input
+
+
         def files_upload(self):
             # Handle file uploads and set processed_bool
             uploaded_files = st.file_uploader("📥 Limit < 2000MB", type=SUPPORTED_EXTENSIONS, accept_multiple_files=True)
+
+            # Generate a set of uploaded file names
+            current_uploaded_file_names = {file.name for file in uploaded_files} if uploaded_files else set()
+
+            # Check if there's no new file upload
+            if current_uploaded_file_names == st.session_state.get('last_uploaded_file_names', set()):
+                return  # No new uploads, return early
+    
+
             if uploaded_files:
                 start_time = time.time()
                 loop = asyncio.new_event_loop()
@@ -528,6 +545,9 @@ class FileUploader:
                     st.success(f"Time taken for processing {total_unprocessed} new files: {time.time() - start_time} seconds")
                 total_processed = sum(len(files) for files in st.session_state['uploaded_files'].values() if files)
                 st.success(f"Processed {total_processed} files. Processed File's Names: {format({file_info['file_short_name'] for files in st.session_state['uploaded_files'].values() for file_info in files.values()})}")
+
+            # Update last uploaded file names
+            st.session_state['last_uploaded_file_names'] = current_uploaded_file_names
 
         # File upload and selection section
         with st.expander("📁 File Upload and Selection:", expanded=True):
