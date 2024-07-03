@@ -334,10 +334,13 @@ def chatallfiles_page():
     st.toast("🌱 Hi! I’m Parsely and I’m here to assist your document analysis needs. Type below to get started.")
 
     ### FileUploader from utils.py
-    uploader = FileUploader(SUPPORTED_EXTENSIONS)
-    uploader.upload_files()
+    @st.experimental_fragment    
+    def file_uploader_fragment():
+        uploader = FileUploader(SUPPORTED_EXTENSIONS)
+        uploader.upload_files()
 
-    # # ic(st.session_state['selected_files'])
+    file_uploader_fragment()
+    st.toast(f'📁 {len(st.session_state["selected_files"])} files uploaded')
 
     ### Conversation Memory and Summary
     if "main_conversation" not in st.session_state:

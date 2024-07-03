@@ -345,28 +345,45 @@ class FileUploader:
 
     @st.cache_data
     def extract_links_and_download_html(_self, url):
-        # Define the sanitize_filename function
+        # Improved sanitize_filename function to handle URLs ending with a slash
         def sanitize_filename(filename):
-            return re.sub(r'[<>:"/\\|?*]', '_', filename)
+            if not filename:  # If filename is empty, provide a default name
+                filename = "default_name"
+            sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename)
+            return sanitized.strip('_')
+
         logging.info("Extracting links from URL: %s", url)
-        response = requests.get(url)
-        soup = BeautifulSoup(response.content, "html.parser")
-        links = soup.find_all("a", href=True)
 
         html_files = []
-        for link in links:
-            href = link['href']
-            if href.startswith("http"):  # Ensure it's a full URL
-                try:
-                    response = requests.get(href)
-                    if response.status_code == 200:
-                        file_name = sanitize_filename(href.split("/")[-1]) + ".html"
-                        temp_file_path = os.path.join(tempfile.gettempdir(), file_name)
-                        with open(temp_file_path, "w", encoding="utf-8") as f:
-                            f.write(response.text)
-                        html_files.append(temp_file_path)
-                except requests.RequestException as e:
-                    logging.error(f"Failed to download {href}: {e}")
+        file_counter = {}
+
+        # Function to generate unique filename
+        def generate_unique_filename(base_name):
+            if base_name in file_counter:
+                file_counter[base_name] += 1
+            else:
+                file_counter[base_name] = 0
+            return f"{base_name}_{file_counter[base_name]}.html"
+
+        # Adjust URL splitting logic to handle URLs ending with a slash
+        url_parts = url.rstrip('/').split('/')  # Remove trailing slash if present
+        base_name = sanitize_filename(url_parts[-1] if url_parts[-1] else url_parts[-2])
+
+        # Download the main URL's HTML content
+        try:
+            response = requests.get(url)
+            if response.status_code == 200:
+                file_name = generate_unique_filename(base_name)
+                temp_file_path = os.path.join(tempfile.gettempdir(), file_name)
+                with open(temp_file_path, "w", encoding="utf-8") as f:
+                    f.write(response.text)
+                html_files.append(temp_file_path)
+            else:
+                logging.error(f"Failed to download {url}: {response.status_code}")
+        except requests.RequestException as e:
+            logging.error(f"Failed to download {url}: {e}")
+
+        # The rest of the function remains unchanged
 
         logging.info("Downloaded HTML files: %s", html_files)
         return html_files
@@ -387,7 +404,7 @@ class FileUploader:
                     logging.debug(f"Added metadata for {key}: {response_json}")
         logging.info("Processed HTML files metadata: %s", st.session_state['processed_html_files_metadata'])
         return responses
-    
+
     def upload_files(self):
         if 'processed_html_files_metadata' not in st.session_state:
             st.session_state['processed_html_files_metadata'] = {}
@@ -401,9 +418,9 @@ class FileUploader:
             except ValueError:
                 return False
 
-        @st.experimental_fragment
         def url_upload():
             url_input = st.text_input("Enter URL to scrape and process:")
+            
             if url_input:
                 if not is_valid_url(url_input):
                     st.error("Invalid URL. Please enter a valid URL.")
@@ -415,10 +432,14 @@ class FileUploader:
                 os.environ["LLAMA_CLOUD_API_KEY"] = st.secrets['LLAMA_CLOUD_API_KEY']
                 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
                 logging.info("Starting URL scraping process...")
+                
+                st.toast(f'Starting URL scraping process for {url_input}...')
                 grouped_html_files = self.extract_links_and_download_html(url_input)
+                
                 if not grouped_html_files:
                     st.error("No HTML files were downloaded. The website may restrict scraping.")
                     return
+
                 logging.info("Running async process for HTML files...")
                 loop.run_until_complete(self.process_html_files(grouped_html_files))
                 logging.info("Finished processing HTML files.")
@@ -439,7 +460,8 @@ class FileUploader:
                     st.write("Select the processed HTML files based on URL:")
                     selected_urls = st.multiselect(
                         "Select URLs",
-                        options=list(grouped_by_url.keys())
+                        options=list(grouped_by_url.keys()),
+                        default=[url_input] if url_input in grouped_by_url else []
                     )
                     # Collect all chunks from the selected URLs
                     selected_html_files = []
@@ -451,9 +473,6 @@ class FileUploader:
                 else:
                     st.error("No processed HTML files found.")
 
-
-
-        @st.experimental_fragment
         def files_upload(self):
             # Handle file uploads and set processed_bool
             uploaded_files = st.file_uploader("📥 Limit < 2000MB", type=SUPPORTED_EXTENSIONS, accept_multiple_files=True)
