@@ -1,6 +1,7 @@
 import streamlit as st
 import streamlit_antd_components as sac
 import os
+import re
 import asyncio
 import aiohttp
 from aiohttp import ClientTimeout
@@ -344,6 +345,9 @@ class FileUploader:
 
     @st.cache_data
     def extract_links_and_download_html(_self, url):
+        # Define the sanitize_filename function
+        def sanitize_filename(filename):
+            return re.sub(r'[<>:"/\\|?*]', '_', filename)
         logging.info("Extracting links from URL: %s", url)
         response = requests.get(url)
         soup = BeautifulSoup(response.content, "html.parser")
@@ -356,7 +360,7 @@ class FileUploader:
                 try:
                     response = requests.get(href)
                     if response.status_code == 200:
-                        file_name = href.split("/")[-1] + ".html"
+                        file_name = sanitize_filename(href.split("/")[-1]) + ".html"
                         temp_file_path = os.path.join(tempfile.gettempdir(), file_name)
                         with open(temp_file_path, "w", encoding="utf-8") as f:
                             f.write(response.text)
