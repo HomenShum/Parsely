@@ -523,8 +523,6 @@ class FileUploader:
                     st.success(f"Time taken for processing {total_unprocessed} new files: {time.time() - start_time} seconds")
                 total_processed = sum(len(files) for files in st.session_state['uploaded_files'].values() if files)
                 st.success(f"Processed {total_processed} files. Processed File's Names: {format({file_info['file_short_name'] for files in st.session_state['uploaded_files'].values() for file_info in files.values()})}")
-                st.rerun()
-
 
         # File upload and selection section
         with st.expander("📁 File Upload and Selection:"):
