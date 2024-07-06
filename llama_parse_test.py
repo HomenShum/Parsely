@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 
-os.environ["LLAMA_CLOUD_API_KEY"] = 'llx-rnSkOSSGdKz0Tbbpf21AQkHOJfSe3J36OiyNX7oL79hgjTaY'
+os.environ["LLAMA_CLOUD_API_KEY"] = st.secrets['llama_cloud_api_key']
 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
 import time

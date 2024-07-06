@@ -114,7 +114,7 @@ async def process_pdf_file(files):
     if 'processed_pdf_files_metadata' not in st.session_state:
         st.session_state['processed_pdf_files_metadata'] = {}
 
-    url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
+    url = st.secrets['parse_api_url']
     async with aiohttp.ClientSession() as session:
         tasks = []
         for index, file in enumerate(files, start=1):
@@ -169,7 +169,7 @@ async def post_image_upload(session, url, filepath, sem):
         logging.info(f"Execution time: {end_time - start_time} seconds")
 
 async def process_image_file(files):
-    url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
+    url = st.secrets['parse_api_url']
     async with aiohttp.ClientSession() as session:
         tasks = []
         for index, file in enumerate(files, start=1):
@@ -286,7 +286,7 @@ async def process_other_file(files):
     if 'processed_other_files_metadata' not in st.session_state:
         st.session_state['processed_other_files_metadata'] = {}
 
-    url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
+    url = st.secrets['parse_api_url']
     async with aiohttp.ClientSession() as session:
         tasks = []
         for index, file in enumerate(files, start=1):
@@ -390,7 +390,7 @@ class FileUploader:
 
 
     async def process_html_files(self, grouped_html_files):
-        url = 'https://txtparseapis-azure.ashysky-c2a561fc.westus2.azurecontainerapps.io/process_upload'
+        url = st.secrets['parse_api_url']
         sem = asyncio.Semaphore(10)  # Limit the number of concurrent requests
         async with aiohttp.ClientSession() as session:
             tasks = []
