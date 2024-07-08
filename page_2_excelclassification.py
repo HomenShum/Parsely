@@ -457,30 +457,25 @@ def excelclassification_tool():
 
 
     # Check if a file has been uploaded
-    # if uploaded_xlsx_csv_files and ('files_processed' not in st.session_state or len(uploaded_xlsx_csv_files) != len(st.session_state['uploaded_dfs'])):
+    uploaded_xlsx_csv_parquet_files = st.file_uploader("Upload an Excel, CSV, or Parquet file", type=["csv", "xlsx", "parquet", "xlsm"], accept_multiple_files=True)
+
     if uploaded_xlsx_csv_parquet_files and ('files_processed' not in st.session_state or len(uploaded_xlsx_csv_parquet_files) != len(st.session_state['uploaded_dfs'])):
-        # Store the list of sheet data in Streamlit's session state
         st.session_state['uploaded_dfs'] = []
 
-        # Iterate over each uploaded file
-        # for user_file in uploaded_xlsx_csv_files:
         for user_file in uploaded_xlsx_csv_parquet_files:
-            # Attempt to read the file into a DataFrame
             try:
-                # Determine the file type and read accordingly
-                if user_file.name.endswith('xlsx'):
+                if user_file.name.endswith(('xlsx', 'xlsm')):
                     excel_file = pd.ExcelFile(user_file)
                     sheet_names = excel_file.sheet_names
                     sheet_data = []
 
                     for sheet in sheet_names:
                         df = pd.read_excel(excel_file, sheet_name=sheet)
-                        # Transform the DataFrame to a dictionary, where each key-value pair represents a row
                         rows = df.to_dict('index')
                         sheet_data.append({
                             'SheetName': sheet,
                             'Rows': rows,
-                            'DataFrame': df  # Store the DataFrame in the session state
+                            'DataFrame': df
                         })
 
                     st.session_state['uploaded_dfs'].append({
@@ -490,9 +485,18 @@ def excelclassification_tool():
                     
                 elif user_file.name.endswith('csv'):
                     df = pd.read_csv(user_file)
-                    # Transform the DataFrame to a dictionary, where each key-value pair represents a row
                     rows = df.to_dict('index')
-                    sheet_data = [{'SheetName': 'na', 'Rows': rows, 'DataFrame': df}]  # Store the DataFrame in the session state
+                    sheet_data = [{'SheetName': 'na', 'Rows': rows, 'DataFrame': df}]
+
+                    st.session_state['uploaded_dfs'].append({
+                        'FileName': user_file.name,
+                        'Sheets': sheet_data
+                    })
+
+                elif user_file.name.endswith('parquet'):
+                    df = pd.read_parquet(user_file)
+                    rows = df.to_dict('index')
+                    sheet_data = [{'SheetName': 'na', 'Rows': rows, 'DataFrame': df}]
 
                     st.session_state['uploaded_dfs'].append({
                         'FileName': user_file.name,
@@ -500,7 +504,7 @@ def excelclassification_tool():
                     })
 
                 else:
-                    st.error('Unsupported file type. Please upload a .csv or .xlsx file.')
+                    st.error('Unsupported file type. Please upload a .csv, .xlsx, .xlsm, or .parquet file.')
 
             except Exception as e:
                 st.error(f'Error reading file: {e}')
