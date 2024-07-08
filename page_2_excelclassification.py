@@ -457,8 +457,6 @@ def excelclassification_tool():
 
 
     # Check if a file has been uploaded
-    uploaded_xlsx_csv_parquet_files = st.file_uploader("Upload an Excel, CSV, or Parquet file", type=["csv", "xlsx", "parquet", "xlsm"], accept_multiple_files=True)
-
     if uploaded_xlsx_csv_parquet_files and ('files_processed' not in st.session_state or len(uploaded_xlsx_csv_parquet_files) != len(st.session_state['uploaded_dfs'])):
         st.session_state['uploaded_dfs'] = []
 
