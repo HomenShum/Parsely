@@ -114,7 +114,19 @@ def excelclassification_tool():
             results_df = pd.DataFrame(results, columns=['Response'])
         df = pd.concat([st.session_state['new_df_to_be_processed'], results_df], axis=1)
 
-        return df
+        # Cleanup process starts here
+        results_df_dict_list = results_df.to_dict('records')
+        clean_up_prompt_list = []
+        for i, result_dict in enumerate(results_df_dict_list):
+            clean_up_prompt_list.append((i, f"{prompt}. Result data: {result_dict}"))
+
+        clean_up_tasks = [(i, rate_limited_clean_up_async(data, sem, prompt)) for i, data in clean_up_prompt_list]
+        clean_up_results = await asyncio.gather(*[task for _, task in clean_up_tasks])
+
+        clean_up_results_df = pd.DataFrame(clean_up_results, columns=['Cleaned Up Result'])
+        clean_up_final_df = pd.concat([df, clean_up_results_df], axis=1)
+
+        return clean_up_final_df
 
 
     @retry_decorator
