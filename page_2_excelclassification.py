@@ -416,8 +416,8 @@ def excelclassification_tool():
 
     st.title("Excel/CSV/Parquet Classification Tool")
 
-    uploaded_xlsx_csv_parquet_files = st.file_uploader("Upload an Excel, CSV, or Parquet file", type=["csv", "xlsx", "parquet", "xlsm"], accept_multiple_files=True)
-
+    uploaded_xlsx_csv_parquet_files = st.file_uploader("Upload an Excel, CSV, or Parquet file", type=["csv", "xlsx", "parquet", "xlsm"], accept_multiple_files=True, key="unique_file_uploader_key")
+    
     if uploaded_xlsx_csv_parquet_files:
         for uploaded_file in uploaded_xlsx_csv_parquet_files:
             file_extension = os.path.splitext(uploaded_file.name)[1]
