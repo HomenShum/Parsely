@@ -424,7 +424,7 @@ def excelclassification_tool():
             
             if file_extension == '.csv':
                 df = pd.read_csv(uploaded_file)
-            elif file_extension == '.xlsx':
+            elif file_extension in ['.xlsx', '.xlsm']: 
                 df = pd.read_excel(uploaded_file)
             elif file_extension == '.parquet':
                 df = pd.read_parquet(uploaded_file)
