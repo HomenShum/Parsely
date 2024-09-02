@@ -22,26 +22,10 @@ from icecream import ic
 from utils_file_upload import FileUploader
 from utils_parsely_core import process_in_default_mode
 
-from llama_index.core import (
-    SimpleDirectoryReader,
-    ServiceContext,
-    Document,
-    VectorStoreIndex,
-    Settings,
-)
-from llama_index.retrievers.bm25 import BM25Retriever
+
 from llama_index.llms.openai import OpenAI
-from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.azure_openai import AzureOpenAI
 from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
-# from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
-from llama_index.core.retrievers import RecursiveRetriever
-from llama_index.core.query_engine import RetrieverQueryEngine
-from llama_index.core.postprocessor import SentenceTransformerRerank
-from llama_index.core.node_parser import MarkdownElementNodeParser
-from llama_index.indices.managed.vectara import VectaraIndex
-
-from llama_parse import LlamaParse
 
 
 logging.basicConfig(
@@ -53,16 +37,16 @@ azure_endpoint=st.secrets["AOAIEndpoint"]
 api_key=st.secrets["AOAIKey"]
 api_version="2024-02-15-preview"
 
-llm = AzureOpenAI(
+azure_openai_llm = AzureOpenAI(
+    engine="gpt-4o",
     model="gpt-4o",
-    deployment_name="gpt-4o",
     api_key=api_key,
     azure_endpoint=azure_endpoint,
     api_version=api_version,
 )
 
 # You need to deploy your own embedding model as well as your own chat completion model
-embed_model = AzureOpenAIEmbedding(
+azure_openai_embed_model = AzureOpenAIEmbedding(
     model="text-embedding-3-small",
     deployment_name="text-embedding-3-small",
     api_key=api_key,
@@ -70,15 +54,12 @@ embed_model = AzureOpenAIEmbedding(
     api_version=api_version,
 )
 
-Settings.llm = llm
-Settings.embed_model = embed_model
+# Settings.llm = llm
+# Settings.embed_model = embed_model
 
 os.environ['VECTARA_API_KEY'] = 'zwt_BSY6BZDNszBvS4OIN3S1667IxZ2FntdvwWLY-A'
 os.environ['VECTARA_CORPUS_ID'] = 'ragathon'
 os.environ['VECTARA_CUSTOMER_ID'] = '86391301'
-
-# Create Vectara Index
-vectara_index = VectaraIndex()
 
 OpenAI.api_key = st.secrets["OPENAI_API_KEY"]
 
@@ -111,7 +92,7 @@ def chatallfiles_page():
 
         message_placeholder = st.empty()
         responses = client.chat.completions.create(
-            model="gpt-3.5-turbo-0125",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content":   """
                             Objective:
@@ -187,7 +168,7 @@ def chatallfiles_page():
 
     async def files_bm25_search(query):
         # BM25 search
-        nodes = await information_retriever.aretrieve(query)
+        nodes = await bm25_retriever.aretrieve(query)
         output_data = []
 
         for node in nodes:
@@ -231,7 +212,7 @@ def chatallfiles_page():
             for result in search_files_result:
                 logging.info(f"async def process_files_data() - Processing result: {result}")
                 payload = {
-                    "model": "gpt-3.5-turbo-0125",
+                    "model": "gpt-4o-mini",
                     "response_format": { "type": "json_object" },
                     "messages": [
                         {
@@ -269,7 +250,7 @@ def chatallfiles_page():
         first_response_message_placeholder = st.empty()
 
         responses = client.chat.completions.create(
-            model="gpt-3.5-turbo-0125",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": f"This is process_in_files_mode. Rephrase the User Input. Extrapolate the user needs in a key topic list. Begin with 'Here is what I am understanding from your question...'"},
                 {"role": "user", "content": f"User Input: {user_question}"}
@@ -419,8 +400,6 @@ def chatallfiles_page():
                                 for id, doc in document_obj.items():
                                     # ic(doc)
                                     llama_index_node_documents.append(doc)  # No need to recreate Document(text=doc.text)
-                                    if vectara_query_mode:
-                                        vectara_index.insert_file(file_path= "", metadata= {id: doc})
 
                                     try:
                                         # ic(doc)
@@ -438,13 +417,36 @@ def chatallfiles_page():
                                     st.toast(f"Error parsing document text: {e}")
                                     
                         # ic(documents_referred)
-                        service_context = ServiceContext.from_defaults(embed_model=embed_model)
-                        nodes = service_context.node_parser.get_nodes_from_documents(llama_index_node_documents)
-                        similarity_top_k_value = len(llama_index_node_documents) // 2 // 2
-                        similarity_top_k_value = max(10, similarity_top_k_value)
-                        
-                        information_retriever = BM25Retriever.from_defaults(nodes=nodes, similarity_top_k=similarity_top_k_value)
 
+                        ### SEP'24 Updates
+                        ## BM25 Examples
+                        from llama_index.core.schema import Document
+                        from llama_index.core.node_parser import SentenceSplitter
+                        from llama_index.core.storage.docstore import SimpleDocumentStore
+                        from llama_index.retrievers.bm25 import BM25Retriever
+                        import Stemmer
+
+                        # TODO: Change the sentence splitter to be more suitable for sentence-window 
+                        node_parser = SentenceSplitter(chunk_size=1024, chunk_overlap=20)
+
+                        # The llama_index_node_documents is a list of Document objects >> trace back to utils_file_upload 
+                        nodes = node_parser.get_nodes_from_documents(documents=llama_index_node_documents)
+
+                        docstore = SimpleDocumentStore()
+                        docstore.add_documents(nodes)
+
+                        similarity_top_k_value = 10
+
+                        # We can pass in the index, docstore, or list of nodes to create the retriever
+                        bm25_retriever = BM25Retriever.from_defaults(
+                            docstore=docstore,
+                            similarity_top_k=similarity_top_k_value,
+                            # Optional: We can pass in the stemmer and set the language for stopwords
+                            # This is important for removing stopwords and stemming the query + text
+                            # The default is english for both
+                            stemmer=Stemmer.Stemmer("english"),
+                            language="english",
+                        )
                         break
                     except ValueError as e:
                         if str(e) == "Please pass exactly one of index, nodes, or docstore.":
@@ -454,43 +456,25 @@ def chatallfiles_page():
                             raise  # If the error is not the one we're expecting, re-raise it
 
                 user_question += f". Use the documents referred: {documents_referred}"
-                main_full_response = process_in_files_mode(user_question)
-                st.session_state.main_conversation.append({"role": "Assistant", "content": main_full_response})
                 if llama_parse_mode:
-                    llama_parse_documents = LlamaParse(result_type="markdown").load_data('assets/files/uber_10q_march_2022.pdf')
-                    node_parser = MarkdownElementNodeParser(llm=OpenAI(model="gpt-3.5-turbo-0125"), num_workers=8)
-                    nodes = node_parser.get_nodes_from_documents(llama_parse_documents)
-                    base_nodes, node_mapping = node_parser.get_base_nodes_and_mappings(nodes)
-                    ctx = ServiceContext.from_defaults(
-                        llm=OpenAI(model="gpt-4o"), 
-                        embed_model=OpenAIEmbedding(model="text-embedding-3-small"), 
-                        chunk_size=512
-                    )
-                    recursive_index = VectorStoreIndex(nodes=base_nodes, service_context=ctx)
-                    # raw_index = VectorStoreIndex.from_documents(llama_parse_documents, service_context=ctx)
-                    retriever = RecursiveRetriever(
-                        "vector", 
-                        retriever_dict={
-                            "vector": recursive_index.as_retriever(similarity_top_k=15)
-                        },
-                        node_dict=node_mapping,
-                    )
-                    reranker = SentenceTransformerRerank(top_n=5, model="BAAI/bge-reranker-large")
-                    recursive_query_engine = RetrieverQueryEngine.from_args(retriever, node_postprocessors=[reranker], service_context=ctx)                                            
-                    response_2 = recursive_query_engine.query(user_question)
-                    # ic(response_2)
-                    # st.session_state.main_conversation.append({"role": "Assistant", "content": "**Llama Parse Result: \n**"+str(response_2)})
+                    ### SEP'24 Update
+                    # one extra dep
+                    from llama_index.core.indices.vector_store.base import VectorStoreIndex
+
+                    # create an index from the parsed markdown
+                    llama_parse_vector_index = VectorStoreIndex.from_documents(
+                        documents = st.session_state['llama_parse_vector_index'])
+
+                    # create a query engine for the index
+                    query_engine = llama_parse_vector_index.as_query_engine(llm=azure_openai_llm)
+
+                    # query the engine
+                    query = user_question
+                    response_2 = query_engine.query(query)
                     user_question += f". Add on the Llama Parse Response Result: {str(response_2)}"
                     main_full_response_with_llama_parse = process_in_files_mode(user_question)
                     st.session_state.main_conversation.append({"role": "Assistant", "content": main_full_response_with_llama_parse})
-                if vectara_query_mode:
-                    query_engine = vectara_index.as_query_engine(similarity_top_k=5)
-                    vectara_response = query_engine.query(user_question)
-                    user_question += f". Add on the Vectara Query Response: {str(vectara_response)}"
-                    main_full_response_with_vectara = process_in_files_mode(user_question)
-                    st.session_state.main_conversation.append({"role": "Assistant", "content": main_full_response_with_vectara})
-                # encode decoded string to utf-8
-                # st.markdown("Assistant: ")
-                # st.markdown(main_full_response)
-
-# # ic(st.session_state['selected_files'])
+                    st.toast("Llama-parse response generated",  icon='🦙')
+                else:
+                    main_full_response = process_in_files_mode(user_question)
+                    st.session_state.main_conversation.append({"role": "Assistant", "content": main_full_response})

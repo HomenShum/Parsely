@@ -138,7 +138,7 @@ def excelclassification_tool():
         async with sem:
             # print(f"Processing description: {str(data)}")
             model = await aclient.chat.completions.create(
-                # model="gpt-3.5-turbo-0125",
+                # model="gpt-4o-mini",
                 model=model_choice,
                 response_model=CompanyClassificationGeneral2,
                 messages=[
@@ -755,9 +755,9 @@ def excelclassification_tool():
                     st.subheader("Select the classification type:")
                     classification_choice = st.selectbox('Select the classification type', ['sector-tag', 'yes-no-reasoning', 'general_response'], key='classification_choice')
 
-                    # Select model: gpt-4-turbo, gpt-3.5-turbo-0125
+                    # Select model: gpt-4-turbo, gpt-4o-mini
                     st.subheader("Select the model:")
-                    model_choice = st.selectbox('Select the model', ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo-0125'], key='model_choice')
+                    model_choice = st.selectbox('Select the model', ['gpt-4o', 'gpt-4-turbo', 'gpt-4o-mini'], key='model_choice')
                     # print(model_choice)
 
                     if st.button("Looks Good! Start Classification"):

@@ -19,6 +19,7 @@ llama-index-llms-azure-openai
 llama-index-llms-openai
 llama-index-retrievers-bm25
 llama-index-indices-managed-vectara
+llama-index-vector-stores-qdrant
 llama-parse
 llmsherpa
 nest_asyncio

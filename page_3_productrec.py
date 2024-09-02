@@ -307,7 +307,7 @@ def product_recommendation_builder():
 
     st.session_state.memory.append("")
 
-    st.session_state["openai_model"] = "gpt-3.5-turbo-0125"
+    st.session_state["openai_model"] = "gpt-4o-mini"
     st.session_state["openai_model_context_window"] = "16K Tokens"
     st.session_state["openai_model_training_data"] = "Up to Sep 2021"
 

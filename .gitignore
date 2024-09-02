@@ -1,1 +1,3 @@
 .streamlit/secrets.toml
+parsely_venv/*
+parsely_venv

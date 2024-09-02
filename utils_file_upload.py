@@ -16,7 +16,7 @@ import io
 import tempfile
 import time
 import logging
-from llama_index.core import Document
+from llama_index.core.schema import Document
 import requests
 from bs4 import BeautifulSoup
 
@@ -53,7 +53,7 @@ async def rate_limited_query_message_info_async(message_data: dict, sem: asyncio
     async with sem:
         # print(f"Processing message: {str(message_data)}")
         class_response = await aclient.chat.completions.create(
-            model="gpt-3.5-turbo-0125",
+            model="gpt-4o-mini",
             response_model=DocumentInfo,
             messages=[
                 {"role": "system", "content": """
@@ -340,8 +340,11 @@ class FileUploader:
             st.session_state['processed_html_files_metadata'] = {}
         if 'llama_index_node_documents' not in st.session_state:
             st.session_state['llama_index_node_documents'] = {}
-        if 'llama_parse_documents_list' not in st.session_state:
-            st.session_state['llama_parse_documents_list'] = []
+        if 'llama_parse_vector_index' not in st.session_state:
+            st.session_state['llama_parse_vector_index'] = []
+        # st.session_state["llama_parse_mode"]
+        if 'llama_parse_mode' not in st.session_state:
+            st.session_state["llama_parse_mode"] = True
 
     @st.cache_data
     def extract_links_and_download_html(_self, url):
@@ -438,8 +441,6 @@ class FileUploader:
                 start_time = time.time()
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                os.environ["LLAMA_CLOUD_API_KEY"] = st.secrets['LLAMA_CLOUD_API_KEY']
-                os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
                 logging.info("Starting URL scraping process...")
                 
                 st.toast(f'Starting URL scraping process for {url_input}...')
@@ -502,8 +503,6 @@ class FileUploader:
                 start_time = time.time()
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                os.environ["LLAMA_CLOUD_API_KEY"] = st.secrets['LLAMA_CLOUD_API_KEY']
-                os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
                 from llama_parse import LlamaParse
 
@@ -529,8 +528,8 @@ class FileUploader:
                         st.session_state['uploaded_files'][file_category][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
 
                         if file_category == 'pdf' and st.session_state['llama_parse_mode'] == 'True':
-                            llama_parse_documents = LlamaParse(result_type="markdown").load_data(file_path=file)
-                            st.session_state['llama_parse_documents_list'].append(llama_parse_documents)
+                            llama_parser_loaded_data_documents = LlamaParse(result_type="markdown", api_key=st.secrets['LLAMA_CLOUD_API_KEY']).load_data(file_path=file)
+                            st.session_state['llama_parse_vector_index'].append(llama_parser_loaded_data_documents)
 
                 unprocessed_files = {category: [file_info['file'] for file_info in st.session_state['uploaded_files'].get(category, {}).values() if not file_info['processed_bool']] for category in ['pdf', 'img', 'excel', 'csv', 'others']}
                 
@@ -692,7 +691,7 @@ class FileUploader:
                 st.session_state['processed_other_files_metadata'] = {}
                 st.session_state['processed_html_files_metadata'] = {}
                 st.session_state['llama_index_node_documents'] = {}
-                st.session_state['llama_parse_documents_list'] = []
+                st.session_state['llama_parse_vector_index'] = []
                 st.rerun()
 
-            return st.session_state['uploaded_files'], st.session_state['selected_files'], st.session_state['llama_parse_documents_list']
+            return st.session_state['uploaded_files'], st.session_state['selected_files'], st.session_state['llama_parse_vector_index']
