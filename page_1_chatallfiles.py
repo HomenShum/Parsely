@@ -507,8 +507,11 @@ def chatallfiles_page():
             from llama_index.core import VectorStoreIndex, StorageContext
 
             # Initialize Qdrant client and vector store
-            qdrant_client = QdrantClient(host="localhost", port=6333)
-            qdrant_aclient = AsyncQdrantClient(host="localhost", port=6333)
+            # qdrant_client = QdrantClient(host="localhost", port=6333)
+            # qdrant_aclient = AsyncQdrantClient(host="localhost", port=6333)
+            qdrant_client = QdrantClient(location=":memory:")
+            qdrant_aclient = AsyncQdrantClient(location=":memory:")
+            
 
             # Delete the collection if it exists
             # if qdrant_client.collection_exists(collection_name=f"{documents_referred}_documents_referred".replace('\\', '_').replace(':', '_')):
