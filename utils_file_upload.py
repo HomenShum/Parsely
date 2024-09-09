@@ -134,11 +134,34 @@ async def process_pdf_file(files):
 
         return st.session_state['processed_pdf_files_metadata']
 
-# print(f"Time taken for processing two files: {two_files_time}")
-# print(f"Time taken for processing all files: {all_files_time}")
-# # Time taken for processing two files: 37.01477813720703
-# # Time taken for processing four files: 54.508569955825806
-# Depends on available resources, size of the files, and the number of files to process.
+async def process_pdf_files_llamaparse(file, parser, index):
+    print(f"Starting PDF processing for {file.name}")
+    unique_file_name = f"{os.path.splitext(file.name)[0]}_{index}{os.path.splitext(file.name)[1]}"
+    temp_file_path = os.path.join(tempfile.gettempdir(), unique_file_name)
+
+    with open(temp_file_path, 'wb') as temp_file:
+        temp_file.write(file.read())
+        json_data = parser.get_json_result(file_path=temp_file.name)
+    
+    llama_parser_hybrid_loaded_data_documents = []
+    for document_json in json_data:
+        for page in document_json["pages"]:
+            llama_parser_hybrid_loaded_data_documents.append(
+                Document(text=page["text"], metadata={"page_number": page["page"]})
+            )
+    
+    st.session_state['llama_parse_hybrid_index'] = llama_parser_hybrid_loaded_data_documents
+    
+    # Also populate processed_pdf_files_metadata
+    st.session_state['processed_pdf_files_metadata'][f"index_{index}_{file.name}"] = {
+        'index': index,
+        'source_name': file.name,
+        'text_chunk': llama_parser_hybrid_loaded_data_documents
+    }
+    
+    print(f"Completed PDF processing for {file.name}")
+
+
 
 ######################################################################
 ########## Image #####################################################
@@ -342,6 +365,8 @@ class FileUploader:
             st.session_state['llama_index_node_documents'] = {}
         if 'llama_parse_vector_index' not in st.session_state:
             st.session_state['llama_parse_vector_index'] = []
+        if 'llama_parse_hybrid_index' not in st.session_state:
+            st.session_state['llama_parse_hybrid_index'] = []
         # st.session_state["llama_parse_mode"]
         if 'llama_parse_mode' not in st.session_state:
             st.session_state["llama_parse_mode"] = True
@@ -407,6 +432,7 @@ class FileUploader:
                     logging.debug(f"Added metadata for {key}: {response_json}")
         logging.info("Processed HTML files metadata: %s", st.session_state['processed_html_files_metadata'])
         return responses
+
 
     def upload_files(self):
         if 'processed_html_files_metadata' not in st.session_state:
@@ -486,6 +512,103 @@ class FileUploader:
                 # Update last processed URL
                 st.session_state['last_processed_url'] = url_input
 
+        import tempfile
+        import shutil
+        from pathlib import Path
+        from typing import Dict, List, Tuple
+        from llama_parse import LlamaParse
+        from llama_index.core import SimpleDirectoryReader
+
+
+        # def files_upload(self):
+        #     # Handle file uploads and set processed_bool
+        #     uploaded_files = st.file_uploader("📥 Limit < 2000MB", type=SUPPORTED_EXTENSIONS, accept_multiple_files=True)
+
+        #     # Generate a set of uploaded file names
+        #     current_uploaded_file_names = {file.name for file in uploaded_files} if uploaded_files else set()
+
+        #     # Check if there's no new file upload
+        #     if current_uploaded_file_names == st.session_state.get('last_uploaded_file_names', set()):
+        #         return  # No new uploads, return early
+
+        #     if uploaded_files:
+        #         start_time = time.time()
+
+        #         temp_dir = tempfile.TemporaryDirectory(prefix='upload_temp_', dir='/tmp')
+        #         temp_path = Path(temp_dir.name)
+
+        #         loop = asyncio.new_event_loop()
+        #         asyncio.set_event_loop(loop)
+
+        #         logging.info(f"Uploading {len(uploaded_files)} files...")
+
+        #         for index, file in enumerate(uploaded_files, start=1):
+        #             file_base_name = os.path.basename(file.name)
+        #             file_short_name = f"{index}_{file_base_name if len(file_base_name) <= 20 else file_base_name[:10] + '...' + file_base_name[-10:]}"
+        #             file_category = None
+
+        #             if file.name.endswith(".pdf"):
+        #                 file_category = 'pdf'
+        #             elif file.name.endswith(".png") or file.name.endswith(".jpg"):
+        #                 file_category = 'img'
+        #             elif file.name.endswith(".xlsx"):
+        #                 file_category = 'excel'
+        #             elif file.name.endswith(".csv"):
+        #                 file_category = 'csv'
+        #             else:
+        #                 file_category = 'others'
+
+        #             if file_category not in st.session_state['uploaded_files']:
+        #                 st.session_state['uploaded_files'][file_category] = {}
+        #             st.session_state['uploaded_files'][file_category][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
+
+        #             if file_category == 'pdf':
+        #                 # 090224 Below is just for BM25
+        #                 parser = LlamaParse(result_type="markdown", api_key=st.secrets['LLAMA_CLOUD_API_KEY'])
+        #                 # llama_parser_loaded_data_documents = parser.load_data(file_path=file)
+        #                 # st.session_state['llama_parse_vector_index'].append(llama_parser_loaded_data_documents)
+
+        #                 # 090224 Below is for Hybrid
+        #                 # get per-page results, along with detailed layout info and metadata
+        #                 unique_file_name = f"{os.path.splitext(file.name)[0]}_{index}{os.path.splitext(file.name)[1]}"
+        #                 temp_file_path = os.path.join(tempfile.gettempdir(), unique_file_name)
+
+
+        #                 ### SEP'24 090224 11PM TODO: 
+        #                 ### The with open command helps us to get the json data fed into the parser
+        #                 ### However, the function ends without further continuing through the run_all_file_processing.
+                                                
+        #                 with open(temp_file_path, 'wb') as temp_file:
+        #                     temp_file.write(file.read())
+                        
+        #                     json_data = parser.get_json_result(file_path=temp_file.name)
+
+
+        #                 llama_parser_hybrid_loaded_data_documents = []
+        #                 for document_json in json_data:
+        #                     for page in document_json["pages"]:
+        #                         llama_parser_hybrid_loaded_data_documents.append(
+        #                             Document(text=page["text"], metadata={"page_number": page["page"]})
+        #                         )
+
+        #                 st.session_state['llama_parse_hybrid_index'].append(llama_parser_hybrid_loaded_data_documents)
+
+        #         unprocessed_files = {category: [file_info['file'] for file_info in st.session_state['uploaded_files'].get(category, {}).values() if not file_info['processed_bool']] for category in ['pdf', 'img', 'excel', 'csv', 'others']}
+                
+        #         loop.run_until_complete(run_all_file_processing(unprocessed_files['pdf'], unprocessed_files['img'], unprocessed_files['excel'], unprocessed_files['csv'], unprocessed_files['others']))
+
+        #         for category in unprocessed_files:
+        #             for file in unprocessed_files[category]:
+        #                 st.session_state['uploaded_files'][category][file.name]['processed_bool'] = True
+
+        #         total_unprocessed = sum(len(files) for files in unprocessed_files.values())
+        #         if total_unprocessed > 0:
+        #             st.success(f"Time taken for processing {total_unprocessed} new files: {time.time() - start_time} seconds")
+        #         total_processed = sum(len(files) for files in st.session_state['uploaded_files'].values() if files)
+        #         st.success(f"Processed {total_processed} files. Processed File's Names: {format({file_info['file_short_name'] for files in st.session_state['uploaded_files'].values() for file_info in files.values()})}")
+
+        #     # Update last uploaded file names
+        #     st.session_state['last_uploaded_file_names'] = current_uploaded_file_names
 
         def files_upload(self):
             # Handle file uploads and set processed_bool
@@ -496,16 +619,22 @@ class FileUploader:
 
             # Check if there's no new file upload
             if current_uploaded_file_names == st.session_state.get('last_uploaded_file_names', set()):
+                print("No new files to upload.")
                 return  # No new uploads, return early
-    
 
             if uploaded_files:
                 start_time = time.time()
+
+                temp_dir = tempfile.TemporaryDirectory(prefix='upload_temp_', dir='/tmp')
+                temp_path = Path(temp_dir.name)
+
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
-                from llama_parse import LlamaParse
+                logging.info(f"Uploading {len(uploaded_files)} files...")
+                print(f"Uploading {len(uploaded_files)} files...")
 
+                tasks = []
                 for index, file in enumerate(uploaded_files, start=1):
                     file_base_name = os.path.basename(file.name)
                     file_short_name = f"{index}_{file_base_name if len(file_base_name) <= 20 else file_base_name[:10] + '...' + file_base_name[-10:]}"
@@ -522,14 +651,16 @@ class FileUploader:
                     else:
                         file_category = 'others'
 
-                    if file_category:
-                        if file_category not in st.session_state['uploaded_files']:
-                            st.session_state['uploaded_files'][file_category] = {}
-                        st.session_state['uploaded_files'][file_category][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
+                    if file_category not in st.session_state['uploaded_files']:
+                        st.session_state['uploaded_files'][file_category] = {}
+                    st.session_state['uploaded_files'][file_category][file.name] = {'file': file, 'processed_bool': False, 'file_short_name': file_short_name}
 
-                        if file_category == 'pdf' and st.session_state['llama_parse_mode'] == 'True':
-                            llama_parser_loaded_data_documents = LlamaParse(result_type="markdown", api_key=st.secrets['LLAMA_CLOUD_API_KEY']).load_data(file_path=file)
-                            st.session_state['llama_parse_vector_index'].append(llama_parser_loaded_data_documents)
+                    if file_category == 'pdf':
+                        parser = LlamaParse(result_type="markdown", api_key=st.secrets['LLAMA_CLOUD_API_KEY'])
+                        tasks.append(process_pdf_files_llamaparse(file, parser, index))
+
+                if tasks:
+                    loop.run_until_complete(asyncio.gather(*tasks))
 
                 unprocessed_files = {category: [file_info['file'] for file_info in st.session_state['uploaded_files'].get(category, {}).values() if not file_info['processed_bool']] for category in ['pdf', 'img', 'excel', 'csv', 'others']}
                 
@@ -547,6 +678,7 @@ class FileUploader:
 
             # Update last uploaded file names
             st.session_state['last_uploaded_file_names'] = current_uploaded_file_names
+
 
         # File upload and selection section
         with st.expander("📁 File Upload and Selection:", expanded=True):
@@ -692,6 +824,7 @@ class FileUploader:
                 st.session_state['processed_html_files_metadata'] = {}
                 st.session_state['llama_index_node_documents'] = {}
                 st.session_state['llama_parse_vector_index'] = []
+                st.session_state['llama_parse_hybrid_index'] = []
                 st.rerun()
 
-            return st.session_state['uploaded_files'], st.session_state['selected_files'], st.session_state['llama_parse_vector_index']
+            return st.session_state['uploaded_files'], st.session_state['selected_files'], st.session_state['llama_parse_vector_index'], st.session_state['llama_parse_hybrid_index']

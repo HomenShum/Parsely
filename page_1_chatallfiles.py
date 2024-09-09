@@ -37,7 +37,7 @@ azure_endpoint=st.secrets["AOAIEndpoint"]
 api_key=st.secrets["AOAIKey"]
 api_version="2024-02-15-preview"
 
-azure_openai_llm = AzureOpenAI(
+azure_gpt_4o_llm = AzureOpenAI(
     engine="gpt-4o",
     model="gpt-4o",
     api_key=api_key,
@@ -56,10 +56,6 @@ azure_openai_embed_model = AzureOpenAIEmbedding(
 
 # Settings.llm = llm
 # Settings.embed_model = embed_model
-
-os.environ['VECTARA_API_KEY'] = 'zwt_BSY6BZDNszBvS4OIN3S1667IxZ2FntdvwWLY-A'
-os.environ['VECTARA_CORPUS_ID'] = 'ragathon'
-os.environ['VECTARA_CUSTOMER_ID'] = '86391301'
 
 OpenAI.api_key = st.secrets["OPENAI_API_KEY"]
 
@@ -88,10 +84,10 @@ def chatallfiles_page():
 
     def process_in_default_mode(user_question):
         main_full_response = ""
-        client = OG_OpenAI()
+        OG_OpenAI_client = OG_OpenAI()
 
         message_placeholder = st.empty()
-        responses = client.chat.completions.create(
+        responses = OG_OpenAI_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content":   """
@@ -210,7 +206,7 @@ def chatallfiles_page():
 
             # Create a task for each highlighted_content
             for result in search_files_result:
-                logging.info(f"async def process_files_data() - Processing result: {result}")
+                # logging.info(f"async def process_files_data() - Processing result: {result}")
                 payload = {
                     "model": "gpt-4o-mini",
                     "response_format": { "type": "json_object" },
@@ -243,13 +239,13 @@ def chatallfiles_page():
 
     def process_in_files_mode(user_question):
         main_full_response = ""
-        client = OG_OpenAI()
+        OG_OpenAI_client = OG_OpenAI()
 
         # Generate user needs from the question
         user_needs = ""
         first_response_message_placeholder = st.empty()
 
-        responses = client.chat.completions.create(
+        responses = OG_OpenAI_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": f"This is process_in_files_mode. Rephrase the User Input. Extrapolate the user needs in a key topic list. Begin with 'Here is what I am understanding from your question...'"},
@@ -307,7 +303,7 @@ def chatallfiles_page():
 
         final_response = ""
         second_response_message_placeholder = st.empty()
-        responses = client.chat.completions.create(
+        responses = OG_OpenAI_client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": f"Highly detailed **Answer**, rest of the response should be concise, unless user asks for more details. Make sure to rephrase the User Input. Extrapolate the user needs in a key topic list. Utilize FILES Search Result. Begin with '**Question Summary**, **Key Topics**, **Answer**, **Source of Evidence**, **Confidence ** (low medium high)...'"},
@@ -323,6 +319,279 @@ def chatallfiles_page():
                 second_response_message_placeholder.markdown(f"**Final Response**: {final_response}")
         st.markdown("---")
         return final_response
+
+    """ TODO:
+    Your current function implements a sophisticated pipeline for query processing, search, reranking, and answering user questions, using both sparse (BM25) and dense (Cohere Rerank) search techniques. The flow also includes integrating results from Llama Parse and Qdrant for hybrid vector search and a final response summarization. Here is a breakdown of the workflow and suggestions for further improvement:
+
+    Summary of Steps:
+    User Intent Understanding:
+
+    The function uses OpenAI's GPT-4o model to rephrase the user's input and extract key needs/topics from the query.
+    This rephrased intent serves as the primary input for further processing.
+    Sparse Search (BM25):
+
+    A BM25-based keyword search on files is conducted to find relevant documents based on the user’s needs.
+    This is the first pass for retrieving relevant results using simple term matching.
+    Dense Rerank (Cohere):
+
+    The search results are reranked using Cohere’s dense vector model to prioritize the most relevant documents.
+    The reranked results are processed asynchronously to ensure speed and efficiency.
+    Llama Parse + Qdrant Hybrid Search:
+
+    Once reranked results are obtained, the function attempts to perform a hybrid search using Llama Parse, Qdrant, and custom vector search.
+    This hybrid search helps improve both sparse and dense query processing by combining the strengths of both approaches.
+    Final GPT-based Response Summarization:
+
+    A final summarization step occurs where OpenAI’s GPT-4o model consolidates the search results and presents a concise, user-friendly answer.
+    The response also includes a breakdown of key topics, confidence, and evidence sources.
+    Suggestions and Optimizations:
+
+    TODO:
+    1. Improving Error Handling:
+    Since the function interacts with multiple external APIs and performs complex operations, the error handling can be further enhanced. Currently, only minimal logging and exception catching are in place.
+    Improvement:
+
+    Consider adding more robust exception handling for API failures, network issues, and invalid data in both sparse and dense search steps.
+    You can also add retries for external API requests in case of timeouts or temporary failures.
+    python
+    Copy code
+    try:
+        response_2 = query_engine.query(user_question)
+    except Exception as e:
+        logging.error(f"Error querying engine: {str(e)}")
+        main_full_response += "\nLlama-Parse query failed."
+
+    TODO:
+    2. Cohere Rerank Results Handling:
+    The reranking section relies heavily on getting results from Cohere. However, there is a fallback to report “No relevant documents found” if nothing is returned.
+    Improvement:
+
+    Consider returning even partial or less relevant results in case the top-ranked documents are not highly relevant, rather than showing a message like "No relevant documents found."
+
+    TODO:    
+    3. Asynchronous Processing Optimization:
+    The use of asyncio.gather for handling multiple tasks is well done. However, if performance is critical, you could also ensure that the tasks are not unnecessarily blocking.
+    Improvement:
+
+    You might want to include a timeout for the async operations or prioritize the most important tasks first to avoid waiting too long for less critical responses.
+    python
+    Copy code
+    responses = await asyncio.gather(*tasks, return_exceptions=True)  # Allows graceful handling of failed tasks
+
+    TODO:
+    4. Llama Parse + Qdrant Hybrid Configuration:
+    The configuration of the Llama Parse and Qdrant hybrid search seems solid, but you could further tweak the parameters (e.g., similarity_top_k, sparse_top_k) based on performance needs or experimentation with different datasets.
+    Improvement:
+
+    Consider running benchmarks with different values for similarity_top_k and sparse_top_k to optimize the balance between sparse and dense results.
+    Additionally, you could implement caching for repeated queries to avoid redundant recalculations.
+
+    TODO:
+    5. Summarization and GPT-4o Response Generation:
+    The final summarization step is clear and well-structured. However, depending on user feedback or needs, you could also allow more granular control over the length or detail of the response.
+    Improvement:
+
+    You could offer options for the user to request either more or less detail in the final response. This can be done by adding optional parameters or a UI toggle for "Detailed Response" vs "Concise Response."
+    python
+    Copy code
+    concise = st.checkbox("Provide a concise response", value=True)
+    if concise:
+        # Provide a short answer
+    else:
+        # Provide a detailed answer
+
+    TODO:
+    6. Caching & Reducing Redundant API Calls:
+    If the same user questions or file searches are repeated, you could cache the search results or even the Llama Parse queries to avoid repeating expensive API calls unnecessarily.
+    Improvement:
+
+    Implement a caching layer for search results and GPT-based responses to improve performance on repeated queries.
+    Potential Challenges:
+    Latency: Combining multiple API calls (OpenAI, Cohere, Qdrant) could introduce latency, especially for large inputs or search results. Consider asynchronous execution and optimizing time-sensitive parts of the pipeline.
+    Error Propagation: If a step fails (e.g., Qdrant collection creation), subsequent steps may depend on its success. Ensure there are appropriate fallbacks for each critical stage.
+
+    TODO:
+    7. Multi-File Mode:
+    The user query may contain questions about multiple files.
+    How to handle this? Assume user query = 
+    i. "Could you find answer on ABC topic?" - The ABC topic exists in multiple files.
+    ii. "Could you find answer on ABC topic and DEF topic?" - The ABC and DEF topics exist in two separate files. 
+    iii. "Could you give me a summary on all of the files?" - Each file need to be summarized and combined into a single response.
+    iv. "Could you compare ABC topic in file 1 and ABC topic in file 2?" - The ABC topic exists in both files.
+    v. "Could you find ABC topic in file 1 only?" - The ABC topic should be found only in file 1.
+    """
+    def process_in_files_mode_with_llama_parse_chat_response(user_question, documents_referred):
+        """
+        Process user question in files mode with Llama Parse Chat response.
+
+        Args:
+        user_question (str): The user's question.
+
+        Returns:
+        str: The final response to the user's question.
+        """
+
+        # Initialize variables
+        main_full_response = ""
+        OG_OpenAI_client = OG_OpenAI()
+
+        # Generate user needs from the question
+        user_needs = ""
+        first_response_message_placeholder = st.empty()
+
+        # Use OpenAI chat completions to generate user needs in a key topic list
+        responses = OG_OpenAI_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": f"This is process_in_files_mode_with_llama_parse_chat_response. Rephrase the User Input. Extrapolate the user needs in a key topic list. Begin with 'Here is what I am understanding from your question... List of key insights I will search for in the '{documents_referred}' files... Readdress the user question: {user_question}'"},
+                {"role": "user", "content": f"User Input: {user_question}"}
+            ],
+            stream=True,
+            seed=42,
+        )
+        for response in responses:
+            # If there is a response, add it to the user needs
+            if response.choices[0].delta.content:
+                user_needs += str(response.choices[0].delta.content).replace('$', '\$')
+                first_response_message_placeholder.markdown(f"**User Needs**: {user_needs}")
+        st.markdown("---")
+
+        # Add the user needs to the main conversation
+        st.session_state.main_conversation.append({"role": "Assistant", "content": f"""**User Needs**: 
+                                                                                        {user_needs}"""})
+        
+        # Add the user needs to the main full response
+        main_full_response += user_needs
+
+        # Search in FILESs
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            # Use BM25 search to find relevant documents in FILES
+            search_files_output_data_list = loop.run_until_complete(files_bm25_search(query=user_needs))
+            logging.info(f"Search Files Output Data List: {search_files_output_data_list}")
+
+            # Dense: Cohere Rerank
+            # Use Cohere rerank to rerank the search results
+            co = cohere.Client(st.secrets["COHERE_API_KEY"])
+            rerank_search_files_output_data_list = [{'text': str({"result": result}).replace('$', '\$')} for result in search_files_output_data_list]
+            rerank_response = co.rerank(
+                model="rerank-english-v3.0",
+                query=user_needs,
+                documents=rerank_search_files_output_data_list,
+                top_n=10,
+                return_documents=True
+            )
+
+            # Process the reranked search results
+            if rerank_response and rerank_response.results:
+                # Process the reranked search results
+                processed_data = loop.run_until_complete(process_files_data(user_needs, rerank_response.results))
+                main_full_response += "\n" + str(processed_data)
+            else:
+                logging.error("No results from rerank")
+                main_full_response += "\nNo relevant documents found."
+
+        finally:
+            loop.close()
+
+        # Llama Parse Chat Integration
+        llama_parse_mode = True  # Assuming a condition to check whether to use Llama Parse
+        if llama_parse_mode:
+            # Use Llama Parse to generate a chat response
+            from qdrant_client import QdrantClient, AsyncQdrantClient
+            from qdrant_client import models
+            from llama_index.core import Settings
+
+            from llama_index.vector_stores.qdrant import QdrantVectorStore
+            from llama_index.core import VectorStoreIndex, StorageContext
+
+            # Initialize Qdrant client and vector store
+            qdrant_client = QdrantClient(host="localhost", port=6333)
+            qdrant_aclient = AsyncQdrantClient(host="localhost", port=6333)
+
+            # Delete the collection if it exists
+            # if qdrant_client.collection_exists(collection_name=f"{documents_referred}_documents_referred".replace('\\', '_').replace(':', '_')):
+            #     qdrant_client.delete_collection(collection_name=f"{documents_referred}_documents_referred".replace('\\', '_').replace(':', '_'))
+
+            if not qdrant_client.collection_exists(collection_name=f"{documents_referred}_documents_referred".replace('\\', '_').replace(':', '_')):
+                ### TODO:
+                ## Create collection with collection name pointing to the document referred 
+                ## If document does not exist, create it
+                
+                # Create a new collection
+                qdrant_client.create_collection(
+                    collection_name=f"{documents_referred}_documents_referred".replace('\\', '_').replace(':', '_'),
+                    vectors_config={
+                        "text-dense": models.VectorParams(
+                            size=1536,  # OpenAI Embeddings
+                            distance=models.Distance.COSINE,
+                        )
+                    },
+                    sparse_vectors_config={
+                        "text-sparse": models.SparseVectorParams(
+                            index=models.SparseIndexParams(
+                                on_disk=False,
+                            )
+                        )
+                    },
+                )
+
+            # Initialize the vector store
+            vector_store = QdrantVectorStore(
+                collection_name=f"{documents_referred}_documents_referred".replace('\\', '_').replace(':', '_'),
+                client=qdrant_client,
+                aclient=qdrant_aclient,
+                enable_hybrid=True,
+                batch_size=20,
+                fastembed_sparse_model="Qdrant/bm42-all-minilm-l6-v2-attentions",
+            )
+            # Initialize the storage context
+            storage_context = StorageContext.from_defaults(vector_store=vector_store)
+            Settings.chunk_size = 512
+            # Initialize the hybrid index
+            # ic(st.session_state['llama_parse_hybrid_index'])
+            
+            index = VectorStoreIndex.from_documents(
+                documents=st.session_state['llama_parse_hybrid_index'],
+                embed_model=azure_openai_embed_model,
+                storage_context=storage_context,
+            )
+
+            # Initialize the query engine
+            query_engine = index.as_query_engine(
+                similarity_top_k=2, 
+                sparse_top_k=12, 
+                vector_store_query_mode="hybrid"
+            )
+            # ic(query_engine)
+            try:
+                response_2 = query_engine.query(user_question)
+                main_full_response += "\nLlama-Parse query = " + str(response_2)
+            except Exception as e:
+                logging.error(f"Error querying engine: {str(e)}")
+                main_full_response += "\nLlama-Parse query = null."
+
+
+        # Final Response with gpt-4o to combine responses from FILES BM25+Cohere Rerank Response and Llama-Parse Hybrid Response
+        final_response = ""
+        second_response_message_placeholder = st.empty()
+        responses = OG_OpenAI_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": f"Highly detailed **Answer**, rest of the response should be concise, unless user asks for more details. Make sure to rephrase the User Input. Extrapolate the user needs in a key topic list. Utilize FILES Search Result. Begin with '**Question Summary**, **Key Topics**, **Answer**, **Source of Evidence**, **Confidence ** (low medium high)...'"},
+                {"role": "user", "content": f"User Input: {user_question}, User Needs: {user_needs}, FILES Search Result: {processed_data}, Main Full Response: {main_full_response}"}
+            ],
+            stream=True,
+            seed=42,
+        )
+        for response in responses:
+            if response.choices[0].delta.content:
+                final_response += str(response.choices[0].delta.content).encode('utf-8').decode('utf-8').replace('$', '\$')
+                second_response_message_placeholder.markdown(f"**Final Response**: {final_response}")
+        st.markdown("---")
+        return final_response
+
 
     ### Title and Description
     st.title("💬 Chat for All Files")
@@ -343,14 +612,8 @@ def chatallfiles_page():
         st.session_state["main_conversation_memory"].append("")
 
     ### Llama_Parse Mode
-    llama_parse_mode = sac.switch(label='Llama_Parse Mode (Only Indexes File if On before Uploadfile)', align='start', size='md')
+    llama_parse_mode = sac.switch(label='Llama_Parse Mode (Hybrid Response)', align='start', size='md')
     st.session_state["llama_parse_mode"] = llama_parse_mode
-    # # ic(st.session_state["llama_parse_mode"])
-
-    ### Vectara Query Mode
-    vectara_query_mode = sac.switch(label='Vectara Query Mode', align='start', size='md')
-    st.session_state["vectara_query_mode"] = vectara_query_mode
-    # # ic(st.session_state["vectara_query_mode"])
 
     ### Reset Conversation
     if st.button("Reset Conversation"):
@@ -370,6 +633,31 @@ def chatallfiles_page():
                     st.markdown("Assistant: ")
                     st.markdown(message["content"])
 
+    # Function to extract 'source_name' and 'index' using regex from the text field
+    def extract_source_name_and_index(text):
+        """
+        This function extracts the 'source_name' and 'index' from a document text field.
+        """
+        try:
+            # Define regex patterns to extract source_name and index
+            source_name_pattern = re.compile(r"'source_name':\s*'([^']+)'")
+            index_pattern = re.compile(r"'index':\s*(\d+)")
+
+            # Search for source_name and index in the text
+            source_name_match = source_name_pattern.search(text)
+            index_match = index_pattern.search(text)
+
+            # Extract and return the matches or fallback to 'Unknown'
+            source_name = source_name_match.group(1) if source_name_match else 'Unknown'
+            index = index_match.group(1) if index_match else 'N/A'
+
+            return source_name, index
+        except Exception as e:
+            st.toast(f"Error extracting source_name and index: {e}")
+            return 'Unknown', 'N/A'
+
+
+
     ### Chat Interface
     user_question = st.chat_input("Ask a question about the selected PDF content:")
 
@@ -379,102 +667,80 @@ def chatallfiles_page():
             st.markdown(user_question)
             st.session_state.main_conversation.append({"role": "User", "content": user_question})
 
+
         with st.chat_message("Assistant"):
             if not st.session_state['selected_files']:
-                # st.toast(f"No files selected, chat in default mode")
+                # No files selected, default mode
                 default_response_with_custom_prompt = process_in_default_mode(user_question)
                 st.session_state.main_conversation.append({"role": "Assistant", "content": default_response_with_custom_prompt})
             else:
-                # st.toast(f"Files selected, chat in files retrieval mode")
+                # Files selected, process them
                 for _ in range(3):  # Retry up to 3 times
                     try:
                         llama_index_node_documents = []
                         documents_referred = []
-                        # page_1_st_session_state_selected_files = st.session_state['selected_files']
-                        # # ic(page_1_st_session_state_selected_files)
+
+                        # Loop through selected files
                         for document_obj in st.session_state['selected_files']:
-                            # ic(document_obj)
-                            # Assuming 'selected_files' is directly storing Document objects
-                            # if document_obj has items
+                            with open("output_file.txt", "w", encoding="utf-8") as f:
+                                f.write(str(document_obj))
+                            
+                            # Check if document_obj is a dictionary of documents
                             if isinstance(document_obj, dict):
                                 for id, doc in document_obj.items():
-                                    # ic(doc)
-                                    llama_index_node_documents.append(doc)  # No need to recreate Document(text=doc.text)
+                                    llama_index_node_documents.append(doc)
 
-                                    try:
-                                        # ic(doc)
-                                        parsed_doc = ast.literal_eval(doc.text)
-                                        documents_referred.append(f"{parsed_doc['source_name']} index: {parsed_doc['index']}")
-                                    except ValueError as e:
-                                        st.toast(f"Error parsing document text: {e}")
+                                    # Parse the text field to extract source_name and index
+                                    source_name, index = extract_source_name_and_index(doc.text)
+                                    st.toast(f"Document {source_name} with index: {index}")
+                                    documents_referred.append(f"{source_name} index: {index}")
+
+                            # Handle non-dict document_obj
                             else:
-                                # just use the document_obj 
                                 llama_index_node_documents.append(document_obj)
-                                try:
-                                    parsed_doc = ast.literal_eval(document_obj.text)
-                                    documents_referred.append(f"{parsed_doc['source_name']} index: {parsed_doc['index']}")
-                                except ValueError as e:
-                                    st.toast(f"Error parsing document text: {e}")
-                                    
-                        # ic(documents_referred)
 
-                        ### SEP'24 Updates
-                        ## BM25 Examples
+                                # Parse the text field for non-dict objects
+                                source_name, index = extract_source_name_and_index(document_obj.text)
+                                st.toast(f"Document {source_name} with index: {index}")
+                                documents_referred.append(f"{source_name} index: {index}")
+
+                        # Processing documents
                         from llama_index.core.schema import Document
                         from llama_index.core.node_parser import SentenceSplitter
                         from llama_index.core.storage.docstore import SimpleDocumentStore
                         from llama_index.retrievers.bm25 import BM25Retriever
                         import Stemmer
 
-                        # TODO: Change the sentence splitter to be more suitable for sentence-window 
+                        # Create sentence splitter and parse documents into nodes
                         node_parser = SentenceSplitter(chunk_size=1024, chunk_overlap=20)
-
-                        # The llama_index_node_documents is a list of Document objects >> trace back to utils_file_upload 
                         nodes = node_parser.get_nodes_from_documents(documents=llama_index_node_documents)
 
+                        # Create document store and add nodes
                         docstore = SimpleDocumentStore()
                         docstore.add_documents(nodes)
 
                         similarity_top_k_value = 10
-
-                        # We can pass in the index, docstore, or list of nodes to create the retriever
                         bm25_retriever = BM25Retriever.from_defaults(
                             docstore=docstore,
                             similarity_top_k=similarity_top_k_value,
-                            # Optional: We can pass in the stemmer and set the language for stopwords
-                            # This is important for removing stopwords and stemming the query + text
-                            # The default is english for both
                             stemmer=Stemmer.Stemmer("english"),
                             language="english",
                         )
-                        break
+                        break  # Break the retry loop if successful
                     except ValueError as e:
                         if str(e) == "Please pass exactly one of index, nodes, or docstore.":
                             st.toast("Please wait for 5 seconds")
-                            time.sleep(5)  # Wait for 5 seconds before retrying
+                            time.sleep(5)
                         else:
-                            raise  # If the error is not the one we're expecting, re-raise it
+                            raise  # Reraise unexpected errors
 
+                # Modify user question with referred documents
                 user_question += f". Use the documents referred: {documents_referred}"
+                
                 if llama_parse_mode:
-                    ### SEP'24 Update
-                    # one extra dep
-                    from llama_index.core.indices.vector_store.base import VectorStoreIndex
-
-                    # create an index from the parsed markdown
-                    llama_parse_vector_index = VectorStoreIndex.from_documents(
-                        documents = st.session_state['llama_parse_vector_index'])
-
-                    # create a query engine for the index
-                    query_engine = llama_parse_vector_index.as_query_engine(llm=azure_openai_llm)
-
-                    # query the engine
-                    query = user_question
-                    response_2 = query_engine.query(query)
-                    user_question += f". Add on the Llama Parse Response Result: {str(response_2)}"
-                    main_full_response_with_llama_parse = process_in_files_mode(user_question)
+                    main_full_response_with_llama_parse = process_in_files_mode_with_llama_parse_chat_response(user_question, documents_referred)
                     st.session_state.main_conversation.append({"role": "Assistant", "content": main_full_response_with_llama_parse})
-                    st.toast("Llama-parse response generated",  icon='🦙')
+                    st.toast("Llama-parse response generated", icon='🦙')
                 else:
                     main_full_response = process_in_files_mode(user_question)
                     st.session_state.main_conversation.append({"role": "Assistant", "content": main_full_response})
