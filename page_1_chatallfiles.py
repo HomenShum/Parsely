@@ -717,18 +717,23 @@ def chatallfiles_page():
                         # Create sentence splitter and parse documents into nodes
                         node_parser = SentenceSplitter(chunk_size=1024, chunk_overlap=20)
                         nodes = node_parser.get_nodes_from_documents(documents=llama_index_node_documents)
-
+                        num_nodes = len(nodes)
+                        
+                        # Adjust similarity_top_k_value based on the number of nodes
+                        similarity_top_k_value = min(10, num_nodes)
+                        
                         # Create document store and add nodes
                         docstore = SimpleDocumentStore()
                         docstore.add_documents(nodes)
-
-                        similarity_top_k_value = 10
+                        
+                        # Initialize BM25 retriever with adjusted k value
                         bm25_retriever = BM25Retriever.from_defaults(
                             docstore=docstore,
                             similarity_top_k=similarity_top_k_value,
                             stemmer=Stemmer.Stemmer("english"),
                             language="english",
                         )
+
                         break  # Break the retry loop if successful
                     except ValueError as e:
                         if str(e) == "Please pass exactly one of index, nodes, or docstore.":
