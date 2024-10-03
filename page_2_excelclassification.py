@@ -46,7 +46,7 @@ def excelclassification_tool():
 
     # Asynchronous function to query data using OpenAI and validate with Pydantic
     sem = asyncio.Semaphore(1000)
-    retry_decorator = retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True)
+    retry_decorator = retry(stop=stop_after_attempt(5), wait=wait_fixed(2), reraise=True)
 
     @retry_decorator
     async def rate_limited_company_classification_async(company_data: Dict[str, Any], sem: Semaphore, prompt: str) -> List[str]:
@@ -62,31 +62,37 @@ def excelclassification_tool():
 
         model_choice = st.session_state['model_choice']
 
-        async with sem:
-            try:
-                model = await aclient.chat.completions.create(
-                    model=model_choice,
-                    response_model=response_model,
-                    messages=[
-                        {"role": "system", "content": str(company_data)},
-                        {"role": "user", "content": prompt},
-                    ],
-                    max_retries=3,
-                )
-                logging.debug(f'Response Model: {response_model}')
-                logging.debug(f'Model Choice: {model_choice}')
-                logging.debug(f'Company Data: {str(company_data)}')
-                logging.debug(f'Prompt: {prompt}')        
-                logging.debug(f'Result: {model}')
-                if st.session_state['classification_choice'] == 'sector-tag':
-                    return [model.SectorTag, model.QuickInfo]
-                elif st.session_state['classification_choice'] == 'yes-no-reasoning':
-                    return [model.Result, model.Reason]
-                elif st.session_state['classification_choice'] == 'general_response':
-                    return [model.Response]
-            except Exception as e:
-                logging.error(f"Error during classification: {e}")
-                raise
+        try:
+            async with sem:
+                try:
+                    model = await aclient.chat.completions.create(
+                        model=model_choice,
+                        response_model=response_model,
+                        messages=[
+                            {"role": "system", "content": str(company_data)},
+                            {"role": "user", "content": prompt},
+                        ],
+                        max_retries=3,
+                    )
+                    logging.debug(f'Response Model: {response_model}')
+                    logging.debug(f'Model Choice: {model_choice}')
+                    logging.debug(f'Company Data: {str(company_data)}')
+                    logging.debug(f'Prompt: {prompt}')        
+                    logging.debug(f'Result: {model}')
+                    if st.session_state['classification_choice'] == 'sector-tag':
+                        return [model.SectorTag, model.QuickInfo]
+                    elif st.session_state['classification_choice'] == 'yes-no-reasoning':
+                        return [model.Result, model.Reason]
+                    elif st.session_state['classification_choice'] == 'general_response':
+                        return [model.Response]
+                except Exception as e:
+                    logging.error(f"Error during classification: {e}")
+                    raise
+        except RateLimitError as e:
+            logging.error(f"Rate limit exceeded: {e}")
+            await asyncio.sleep(60)  # Backoff before retrying
+            raise e
+
 
     async def main_classification_async(df, prompt):
         # only use first column for now
