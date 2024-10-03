@@ -74,8 +74,7 @@ def excelclassification_tool():
                         model=model_choice,
                         response_model=response_model,
                         messages=[
-                            {"role": "system", "content": str(company_data)},
-                            {"role": "user", "content": prompt},
+                            {"role": "user", "content": " System Prompt: " + str(company_data) + " User Prompt: " + prompt},
                         ],
                         max_retries=3,
                     )
@@ -164,8 +163,7 @@ def excelclassification_tool():
                 model=model_choice,
                 response_model=CompanyClassificationGeneral2,
                 messages=[
-                    {"role": "system", "content": prompt_for_generating_new_column},
-                    {"role": "user", "content": str(data)},
+                    {"role": "user", "content": + " System Prompt: " + prompt_for_generating_new_column + " User Prompt: " + str(data)},
                 ],
             max_retries=3,
             )
@@ -180,8 +178,7 @@ def excelclassification_tool():
                 model="o1-mini",
                 response_model=CompanyClassificationGeneral2,
                 messages=[
-                    {"role": "system", "content": "Clean up the irrelevant result. Keep only useful and relevant information in readable format. Double Check and Proof Read."},
-                    {"role": "user", "content": str(data)},
+                    {"role": "user", "content": "Clean up the irrelevant result. Keep only useful and relevant information in readable format. Double Check and Proof Read." + " User Prompt: " + str(data)},
                 ],
                 max_retries=3,
             )
