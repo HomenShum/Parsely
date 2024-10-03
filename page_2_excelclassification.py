@@ -175,7 +175,7 @@ def excelclassification_tool():
     async def rate_limited_clean_up_async(data: dict, sem: asyncio.Semaphore, prompt: str) -> str:
         async with sem:
             model = await aclient.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model_choice,
                 response_model=CompanyClassificationGeneral2,
                 messages=[
                     {"role": "user", "content": "Clean up the irrelevant result. Keep only useful and relevant information in readable format. Double Check and Proof Read." + " User Prompt: " + str(data)},
@@ -776,7 +776,7 @@ def excelclassification_tool():
 
                     # Select model: gpt-4-turbo, gpt-4o-mini
                     st.subheader("Select the model:")
-                    model_choice = st.selectbox('Select the model', ['gpt-4o-mini', 'gpt-4o-mini'], key='model_choice')
+                    model_choice = st.selectbox('Select the model', ['gpt-4o', 'gpt-4o-mini'], key='model_choice')
                     # print(model_choice)
 
                     if st.button("Looks Good! Start Classification"):
