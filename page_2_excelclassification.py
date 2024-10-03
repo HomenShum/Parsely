@@ -22,6 +22,7 @@ def excelclassification_tool():
     import openai
     import instructor
     from pydantic import BaseModel
+    from pydantic import ValidationError
 
     # Configure logging
     logging.basicConfig(level=logging.DEBUG)
@@ -51,6 +52,7 @@ def excelclassification_tool():
 
     @retry_decorator
     async def rate_limited_company_classification_async(company_data: Dict[str, Any], sem: Semaphore, prompt: str) -> List[str]:
+        # Determine the response model based on classification choice
         if st.session_state['classification_choice'] == 'sector-tag':
             response_model = CompanySectorTagClass
         elif st.session_state['classification_choice'] == 'yes-no-reasoning':
@@ -58,10 +60,7 @@ def excelclassification_tool():
         elif st.session_state['classification_choice'] == 'general_response':
             response_model = CompanyClassificationGeneral
 
-        if 'model_choice' not in st.session_state:
-            st.session_state['model_choice'] = "gpt-4o"  # Initialize with a default value
-
-        model_choice = st.session_state['model_choice']
+        model_choice = st.session_state.get('model_choice', 'gpt-4o')
 
         try:
             async with sem:
@@ -75,44 +74,50 @@ def excelclassification_tool():
                         ],
                         max_retries=3,
                     )
-                    logging.debug(f'Response Model: {response_model}')
-                    logging.debug(f'Model Choice: {model_choice}')
-                    logging.debug(f'Company Data: {str(company_data)}')
-                    logging.debug(f'Prompt: {prompt}')        
-                    logging.debug(f'Result: {model}')
+                    # Process the response based on classification choice
                     if st.session_state['classification_choice'] == 'sector-tag':
                         return [model.SectorTag, model.QuickInfo]
                     elif st.session_state['classification_choice'] == 'yes-no-reasoning':
                         return [model.Result, model.Reason]
                     elif st.session_state['classification_choice'] == 'general_response':
                         return [model.Response]
+                except ValidationError as ve:
+                    logging.error(f"Pydantic validation error: {ve}")
+                    st.error(f"Pydantic validation error: {ve}")
+                    raise ve
                 except Exception as e:
                     logging.error(f"Error during classification: {e}")
+                    st.error(f"Error during classification: {e}")
                     raise
         except RateLimitError as e:
             logging.error(f"Rate limit exceeded: {e}")
-            await asyncio.sleep(60)  # Backoff before retrying
+            st.error(f"Rate limit exceeded: {e}")
+            await asyncio.sleep(60)
             raise e
 
 
     async def main_classification_async(df, prompt):
-        # only use first column for now
         if 'PII Masked Data' not in df.columns:
-            # concatenate all columns into a single string
+            # Concatenate all columns into a single string
             df_dict_list = df.apply(lambda x: ', '.join([f'{column}: {x[column]}' for column in df.columns]), axis=1).to_list()
         else:
             df_dict_list = df['PII Masked Data'].to_dict('records')
 
         tasks = [rate_limited_company_classification_async(data, sem, prompt) for data in df_dict_list]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        total = len(tasks)
+        progress_bar = st.progress(0)
+        results = []
 
-        # Check for exceptions in results
-        for result in results:
-            if isinstance(result, Exception):
-                logging.error(f"Task resulted in an exception: {result}")
-                raise result
+        for idx, task in enumerate(asyncio.as_completed(tasks)):
+            try:
+                result = await task
+                results.append(result)
+            except Exception as e:
+                logging.error(f"Task resulted in an exception: {e}")
+                results.append(None)
+            progress_bar.progress((idx + 1) / total)
 
-        # add new columns to the dataframe df
+        # Add new columns to the dataframe df
         if st.session_state['classification_choice'] == 'sector-tag':
             results_df = pd.DataFrame(results, columns=['Sector Tag', 'QuickInfo'])
         elif st.session_state['classification_choice'] == 'yes-no-reasoning':
@@ -120,6 +125,7 @@ def excelclassification_tool():
         elif st.session_state['classification_choice'] == 'general_response':
             results_df = pd.DataFrame(results, columns=['Response'])
         df = pd.concat([st.session_state['new_df_to_be_processed'], results_df], axis=1)
+
 
         # Cleanup process starts here
         results_df_dict_list = results_df.to_dict('records')
