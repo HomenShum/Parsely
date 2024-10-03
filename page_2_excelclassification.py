@@ -17,8 +17,8 @@ def excelclassification_tool():
     from openpyxl.utils import get_column_letter
     from pydantic import BaseModel
     from tenacity import retry, stop_after_attempt, wait_fixed
-    from openai.error import RateLimitError, InsufficientQuotaError
-    
+    from openai import RateLimitError
+
     import openai
     import instructor
     from pydantic import BaseModel
@@ -47,7 +47,7 @@ def excelclassification_tool():
 
     # Asynchronous function to query data using OpenAI and validate with Pydantic
     sem = asyncio.Semaphore(1000)
-    retry_decorator = retry(stop=stop_after_attempt(5), wait=wait_fixed(2), reraise=True)
+    retry_decorator = retry(stop=stop_after_attempt(20), wait=wait_fixed(2), reraise=True)
 
     @retry_decorator
     async def rate_limited_company_classification_async(company_data: Dict[str, Any], sem: Semaphore, prompt: str) -> List[str]:
@@ -92,13 +92,6 @@ def excelclassification_tool():
         except RateLimitError as e:
             logging.error(f"Rate limit exceeded: {e}")
             await asyncio.sleep(60)  # Backoff before retrying
-            raise e
-        except InsufficientQuotaError as e:
-            logging.error(f"Insufficient quota: {e}")
-            st.error("Insufficient quota. Please check your OpenAI subscription plan.")
-            raise e  # You may choose to stop execution or notify users with a friendly error message
-        except Exception as e:
-            logging.error(f"Unexpected error: {e}")
             raise e
 
 
@@ -857,7 +850,6 @@ def excelclassification_tool():
         if 'batch_size' not in st.session_state:
             st.session_state['batch_size'] = 5
 
-        from openai import RateLimitError
 
         if 'Generate New Column on Sheet B Given A' in selected_modes:
             with col2:
