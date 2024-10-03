@@ -56,7 +56,7 @@ def excelclassification_tool():
     )
 
     @retry_decorator
-    async def rate_limited_company_classification_async(company_data: Dict[str, Any], sem: Semaphore, prompt: str) -> List[str]:
+    async def rate_limited_company_classification_async(idx: int, company_data: Dict[str, Any], sem: Semaphore, prompt: str) -> Tuple[int, List[str]]:
         # Determine the response model based on classification choice
         if st.session_state['classification_choice'] == 'sector-tag':
             response_model = CompanySectorTagClass
