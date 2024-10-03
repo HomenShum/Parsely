@@ -16,8 +16,8 @@ def excelclassification_tool():
     from openpyxl.styles import Font
     from openpyxl.utils import get_column_letter
     from pydantic import BaseModel
-    from tenacity import retry, stop_after_attempt, wait_fixed
-    from openai import RateLimitError
+    from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+    from openai import RateLimitError, InsufficientQuotaError
 
     import openai
     import instructor
@@ -26,6 +26,17 @@ def excelclassification_tool():
 
     # Configure logging
     logging.basicConfig(level=logging.DEBUG)
+
+    def get_openai_usage():
+        import datetime
+        end_date = datetime.datetime.now()
+        start_date = end_date - datetime.timedelta(days=30)
+        usage = openai.Usage.list(start_date=start_date.strftime("%Y-%m-%d"), end_date=end_date.strftime("%Y-%m-%d"))
+        return usage
+
+    # Display usage
+    st.write("OpenAI API Usage:", get_openai_usage())
+
 
     # Patch the OpenAI client with Instructor, 062824 Instructor Version Update
     # aclient = instructor.apatch(AsyncOpenAI(api_key = st.secrets["OPENAI_API_KEY"]))
@@ -48,7 +59,12 @@ def excelclassification_tool():
 
     # Asynchronous function to query data using OpenAI and validate with Pydantic
     sem = asyncio.Semaphore(1000)
-    retry_decorator = retry(stop=stop_after_attempt(20), wait=wait_fixed(2), reraise=True)
+    retry_decorator = retry(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(2),
+        retry=retry_if_exception_type(RateLimitError),
+        reraise=True
+    )
 
     @retry_decorator
     async def rate_limited_company_classification_async(company_data: Dict[str, Any], sem: Semaphore, prompt: str) -> List[str]:
@@ -89,10 +105,18 @@ def excelclassification_tool():
                     logging.error(f"Error during classification: {e}")
                     st.error(f"Error during classification: {e}")
                     raise
+        except InsufficientQuotaError as e:
+            logging.error(f"Insufficient quota: {e}")
+            st.error("You have exceeded your OpenAI API quota. Please check your plan and billing details.")
+            raise e  # Re-raise if you want to stop processing
         except RateLimitError as e:
             logging.error(f"Rate limit exceeded: {e}")
-            st.error(f"Rate limit exceeded: {e}")
-            await asyncio.sleep(60)
+            st.warning("Rate limit exceeded. Retrying after a delay...")
+            await asyncio.sleep(60)  # Wait before retrying
+            raise e
+        except Exception as e:
+            logging.error(f"Error during classification: {e}")
+            st.error(f"An error occurred during classification: {e}")
             raise e
 
 
@@ -104,7 +128,7 @@ def excelclassification_tool():
             df_dict_list = df['PII Masked Data'].to_dict('records')
 
         tasks = [rate_limited_company_classification_async(data, sem, prompt) for data in df_dict_list]
-        total = len(tasks)
+        total_tasks = len(tasks)
         progress_bar = st.progress(0)
         results = []
 
@@ -112,10 +136,13 @@ def excelclassification_tool():
             try:
                 result = await task
                 results.append(result)
+            except InsufficientQuotaError as e:
+                st.error("Insufficient quota. Stopping processing.")
+                break  # Exit the loop since further requests will fail
             except Exception as e:
                 logging.error(f"Task resulted in an exception: {e}")
                 results.append(None)
-            progress_bar.progress((idx + 1) / total)
+            progress_bar.progress((idx + 1) / total_tasks)
 
         # Add new columns to the dataframe df
         if st.session_state['classification_choice'] == 'sector-tag':
