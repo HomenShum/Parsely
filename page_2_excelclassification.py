@@ -27,17 +27,6 @@ def excelclassification_tool():
     # Configure logging
     logging.basicConfig(level=logging.DEBUG)
 
-    def get_openai_usage():
-        import datetime
-        end_date = datetime.datetime.now()
-        start_date = end_date - datetime.timedelta(days=30)
-        usage = openai.Usage.list(start_date=start_date.strftime("%Y-%m-%d"), end_date=end_date.strftime("%Y-%m-%d"))
-        return usage
-
-    # Display usage
-    st.write("OpenAI API Usage:", get_openai_usage())
-
-
     # Patch the OpenAI client with Instructor, 062824 Instructor Version Update
     # aclient = instructor.apatch(AsyncOpenAI(api_key = st.secrets["OPENAI_API_KEY"]))
     aclient = instructor.from_openai(openai.AsyncOpenAI(api_key = st.secrets["OPENAI_API_KEY"]))
