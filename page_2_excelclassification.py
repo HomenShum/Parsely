@@ -153,13 +153,13 @@ def excelclassification_tool():
     @retry_decorator
     async def rate_limited_query_main_generate_new_col_async(data: Dict[str, Any], sem: Semaphore, prompt: str) -> List[str]:
         if 'model_choice' not in st.session_state:
-            st.session_state['model_choice'] = "o1-mini"  # Initialize with a default value
+            st.session_state['model_choice'] = "gpt-4o-mini"  # Initialize with a default value
 
         model_choice = st.session_state['model_choice']
         async with sem:
             # print(f"Processing description: {str(data)}")
             model = await aclient.chat.completions.create(
-                # model="o1-mini",
+                # model="gpt-4o-mini",
                 model=model_choice,
                 response_model=CompanyClassificationGeneral2,
                 messages=[
@@ -175,7 +175,7 @@ def excelclassification_tool():
     async def rate_limited_clean_up_async(data: dict, sem: asyncio.Semaphore, prompt: str) -> str:
         async with sem:
             model = await aclient.chat.completions.create(
-                model="o1-mini",
+                model="gpt-4o-mini",
                 response_model=CompanyClassificationGeneral2,
                 messages=[
                     {"role": "user", "content": "Clean up the irrelevant result. Keep only useful and relevant information in readable format. Double Check and Proof Read." + " User Prompt: " + str(data)},
@@ -774,9 +774,9 @@ def excelclassification_tool():
                     st.subheader("Select the classification type:")
                     classification_choice = st.selectbox('Select the classification type', ['sector-tag', 'yes-no-reasoning', 'general_response'], key='classification_choice')
 
-                    # Select model: gpt-4-turbo, o1-mini
+                    # Select model: gpt-4-turbo, gpt-4o-mini
                     st.subheader("Select the model:")
-                    model_choice = st.selectbox('Select the model', ['o1-mini', 'o1-mini'], key='model_choice')
+                    model_choice = st.selectbox('Select the model', ['gpt-4o-mini', 'gpt-4o-mini'], key='model_choice')
                     # print(model_choice)
 
                     if st.button("Looks Good! Start Classification"):
