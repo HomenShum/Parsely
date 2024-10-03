@@ -17,7 +17,8 @@ def excelclassification_tool():
     from openpyxl.utils import get_column_letter
     from pydantic import BaseModel
     from tenacity import retry, stop_after_attempt, wait_fixed
-
+    from openai.error import RateLimitError, InsufficientQuotaError
+    
     import openai
     import instructor
     from pydantic import BaseModel
@@ -91,6 +92,13 @@ def excelclassification_tool():
         except RateLimitError as e:
             logging.error(f"Rate limit exceeded: {e}")
             await asyncio.sleep(60)  # Backoff before retrying
+            raise e
+        except InsufficientQuotaError as e:
+            logging.error(f"Insufficient quota: {e}")
+            st.error("Insufficient quota. Please check your OpenAI subscription plan.")
+            raise e  # You may choose to stop execution or notify users with a friendly error message
+        except Exception as e:
+            logging.error(f"Unexpected error: {e}")
             raise e
 
 
