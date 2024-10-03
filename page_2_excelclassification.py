@@ -70,29 +70,31 @@ def excelclassification_tool():
         try:
             async with sem:
                 try:
-                    model = await aclient.chat.completions.create(
-                        model=model_choice,
-                        response_model=response_model,
-                        messages=[
-                            {"role": "user", "content": " System Prompt: " + str(company_data) + " User Prompt: " + prompt},
-                        ],
-                        max_retries=3,
-                    )
-                    # Process the response based on classification choice
-                    if st.session_state['classification_choice'] == 'sector-tag':
-                        return [model.SectorTag, model.QuickInfo]
-                    elif st.session_state['classification_choice'] == 'yes-no-reasoning':
-                        return [model.Result, model.Reason]
-                    elif st.session_state['classification_choice'] == 'general_response':
-                        return [model.Response]
+                    async with sem:
+                        model = await aclient.chat.completions.create(
+                            model=model_choice,
+                            response_model=response_model,
+                            messages=[
+                                {"role": "user", "content": "System Prompt: " + str(company_data) + " User Prompt: " + prompt},
+                            ],
+                            max_retries=3,
+                        )
+                        # Process the response based on classification choice
+                        if st.session_state['classification_choice'] == 'sector-tag':
+                            result = [model.SectorTag, model.QuickInfo]
+                        elif st.session_state['classification_choice'] == 'yes-no-reasoning':
+                            result = [model.Result, model.Reason]
+                        elif st.session_state['classification_choice'] == 'general_response':
+                            result = [model.Response]
+                        return idx, result
                 except ValidationError as ve:
                     logging.error(f"Pydantic validation error: {ve}")
                     st.error(f"Pydantic validation error: {ve}")
-                    raise ve
+                    return idx, None
                 except Exception as e:
                     logging.error(f"Error during classification: {e}")
                     st.error(f"Error during classification: {e}")
-                    raise
+                    return idx, None
         except RateLimitError as e:
             logging.error(f"Rate limit exceeded: {e}")
             st.warning("Rate limit exceeded. Retrying after a delay...")
@@ -111,29 +113,39 @@ def excelclassification_tool():
         else:
             df_dict_list = df['PII Masked Data'].to_dict('records')
 
-        tasks = [rate_limited_company_classification_async(data, sem, prompt) for data in df_dict_list]
+        tasks = []
+        for idx, data in enumerate(df_dict_list):
+            task = asyncio.create_task(rate_limited_company_classification_async(idx, data, sem, prompt))
+            tasks.append(task)
+
         total_tasks = len(tasks)
         progress_bar = st.progress(0)
-        results = []
+        results_dict = {}
 
-        for idx, task in enumerate(asyncio.as_completed(tasks)):
+        for i, future in enumerate(asyncio.as_completed(tasks)):
             try:
-                result = await task
-                results.append(result)
+                idx, result = await future
+                results_dict[idx] = result
             except Exception as e:
                 logging.error(f"Task resulted in an exception: {e}")
-                results.append(None)
-            progress_bar.progress((idx + 1) / total_tasks)
+                results_dict[idx] = None
+            progress_bar.progress((i + 1) / total_tasks)
 
-        # Add new columns to the dataframe df
+        # Reconstruct results in order
+        results = [results_dict[idx] for idx in range(len(df_dict_list))]
+
+        # Create the results DataFrame
         if st.session_state['classification_choice'] == 'sector-tag':
             results_df = pd.DataFrame(results, columns=['Sector Tag', 'QuickInfo'])
         elif st.session_state['classification_choice'] == 'yes-no-reasoning':
             results_df = pd.DataFrame(results, columns=['Result', 'Reason'])
         elif st.session_state['classification_choice'] == 'general_response':
             results_df = pd.DataFrame(results, columns=['Response'])
-        df = pd.concat([st.session_state['new_df_to_be_processed'], results_df], axis=1)
 
+        # Concatenate with the original DataFrame
+        df = pd.concat([st.session_state['new_df_to_be_processed'].reset_index(drop=True), results_df], axis=1)
+
+        return df
 
         # Cleanup process starts here
         results_df_dict_list = results_df.to_dict('records')
