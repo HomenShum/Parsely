@@ -116,6 +116,7 @@ def excelclassification_tool():
         tasks = []
         for idx, data in enumerate(df_dict_list):
             task = asyncio.create_task(rate_limited_company_classification_async(idx, data, sem, prompt))
+            task.idx = idx  # Store idx in the task
             tasks.append(task)
 
         total_tasks = len(tasks)
@@ -127,7 +128,8 @@ def excelclassification_tool():
                 idx, result = await future
                 results_dict[idx] = result
             except Exception as e:
-                logging.error(f"Task resulted in an exception: {e}")
+                idx = future.idx  # Retrieve idx from the task
+                logging.error(f"Task {idx} resulted in an exception: {e}")
                 results_dict[idx] = None
             progress_bar.progress((i + 1) / total_tasks)
 
