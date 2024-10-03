@@ -5,7 +5,7 @@ def excelclassification_tool():
     import time
     from asyncio import Semaphore
     from io import BytesIO
-    from typing import Any, Dict, List, Optional
+    from typing import Any, Dict, List, Optional, Tuple
 
     import pandas as pd
     import streamlit as st
