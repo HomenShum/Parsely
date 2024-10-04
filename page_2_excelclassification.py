@@ -41,7 +41,7 @@ def excelclassification_tool():
         Reason: str
 
     class CompanyClassificationGeneral(BaseModel):
-        Response: List[str]
+        Response: str
 
     class CompanyClassificationGeneral2(BaseModel):
         Response: str
@@ -54,6 +54,49 @@ def excelclassification_tool():
         retry=retry_if_exception_type(RateLimitError),
         reraise=True
     )
+
+    @retry_decorator
+    async def rate_limited_company_classification_o1_async(
+        idx: int,
+        company_data: str,
+        sem: Semaphore,
+        prompt: str
+    ) -> Tuple[int, str]:
+        model_choice = st.session_state['model_choice']  # 'o1-mini' or 'o1-preview'
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+
+        async with sem, aiohttp.ClientSession() as session:
+            payload = {
+                "model": model_choice,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": f"{prompt}\n\nData:\n{company_data}"
+                    }
+                ]
+            }
+
+            try:
+                async with session.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers=headers,
+                    json=payload
+                ) as response:
+                    if response.status == 200:
+                        response_json = await response.json()
+                        assistant_reply = response_json['choices'][0]['message']['content'].strip()
+                        return idx, assistant_reply
+                    else:
+                        error_message = await response.text()
+                        logging.error(f"Request failed at index {idx} with status {response.status}: {error_message}")
+                        return idx, None
+            except Exception as e:
+                logging.error(f"Error during classification at index {idx}: {e}")
+                return idx, None
+
 
     @retry_decorator
     async def rate_limited_company_classification_async(idx: int, company_data: Dict[str, Any], sem: Semaphore, prompt: str) -> Tuple[int, List[str]]:
@@ -109,14 +152,24 @@ def excelclassification_tool():
     async def main_classification_async(df, prompt):
         if 'PII Masked Data' not in df.columns:
             # Concatenate all columns into a single string
-            df_dict_list = df.apply(lambda x: ', '.join([f'{column}: {x[column]}' for column in df.columns]), axis=1).to_list()
+            df_dict_list = df.apply(
+                lambda x: ', '.join([f'{column}: {x[column]}' for column in df.columns]),
+                axis=1
+            ).tolist()
         else:
-            df_dict_list = df['PII Masked Data'].to_dict('records')
+            df_dict_list = df['PII Masked Data'].tolist()
 
         tasks = []
         for idx, data in enumerate(df_dict_list):
-            task = asyncio.create_task(rate_limited_company_classification_async(idx, data, sem, prompt))
-            task.idx = idx  # Store idx in the task
+            if st.session_state['model_choice'] in ['o1-mini', 'o1-preview']:
+                task = asyncio.create_task(
+                    rate_limited_company_classification_o1_async(idx, data, sem, prompt)
+                )
+            else:
+                task = asyncio.create_task(
+                    rate_limited_company_classification_async(idx, data, sem, prompt)
+                )
+            task.idx = idx  # Store idx in the task for exception handling
             tasks.append(task)
 
         total_tasks = len(tasks)
@@ -137,17 +190,26 @@ def excelclassification_tool():
         results = [results_dict[idx] for idx in range(len(df_dict_list))]
 
         # Create the results DataFrame
-        if st.session_state['classification_choice'] == 'sector-tag':
-            results_df = pd.DataFrame(results, columns=['Sector Tag', 'QuickInfo'])
-        elif st.session_state['classification_choice'] == 'yes-no-reasoning':
-            results_df = pd.DataFrame(results, columns=['Result', 'Reason'])
-        elif st.session_state['classification_choice'] == 'general_response':
+        if st.session_state['model_choice'] in ['o1-mini', 'o1-preview']:
+            # Use the assistant's reply directly
             results_df = pd.DataFrame(results, columns=['Response'])
+        else:
+            # Existing processing for other models
+            if st.session_state['classification_choice'] == 'sector-tag':
+                results_df = pd.DataFrame(results, columns=['Sector Tag', 'QuickInfo'])
+            elif st.session_state['classification_choice'] == 'yes-no-reasoning':
+                results_df = pd.DataFrame(results, columns=['Result', 'Reason'])
+            elif st.session_state['classification_choice'] == 'general_response':
+                results_df = pd.DataFrame(results, columns=['Response'])
 
         # Concatenate with the original DataFrame
-        df = pd.concat([st.session_state['new_df_to_be_processed'].reset_index(drop=True), results_df], axis=1)
+        df = pd.concat(
+            [st.session_state['new_df_to_be_processed'].reset_index(drop=True), results_df],
+            axis=1
+        )
 
         return df
+
 
         # # Cleanup process starts here
         # results_df_dict_list = results_df.to_dict('records')
@@ -788,10 +850,14 @@ def excelclassification_tool():
                     st.subheader("Select the classification type:")
                     classification_choice = st.selectbox('Select the classification type', ['sector-tag', 'yes-no-reasoning', 'general_response'], key='classification_choice')
 
-                    # Select model: gpt-4-turbo, gpt-4o-mini
+                    # In your Streamlit app
                     st.subheader("Select the model:")
-                    model_choice = st.selectbox('Select the model', ['gpt-4o', 'gpt-4o-mini'], key='model_choice')
-                    # print(model_choice)
+                    model_choice = st.selectbox(
+                        'Select the model',
+                        ['gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o1-preview'],
+                        key='model_choice'
+                    )
+
 
                     if st.button("Looks Good! Start Classification"):
                         # Start the classification process
