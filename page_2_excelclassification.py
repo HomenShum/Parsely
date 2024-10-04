@@ -707,7 +707,6 @@ def excelclassification_tool():
         sac.ButtonsItem(label='Classification'),
         sac.ButtonsItem(label='Build Your Own Bot'),
         sac.ButtonsItem(label='Generate New Column on Sheet B Given A'),
-        sac.ButtonsItem(label='Pricing')  # Add Pricing option
     ], label='Select Use Cases', align='start')
 
     col1, col2 = st.columns([1, 2])
