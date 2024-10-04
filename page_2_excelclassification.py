@@ -700,11 +700,6 @@ def excelclassification_tool():
         sac.ButtonsItem(label='Pricing')  # Add Pricing option
     ], label='Select Use Cases', align='start')
 
-    # Handle the 'Pricing' option
-    if 'Pricing' in selected_modes:
-        st.header("Pricing Information")
-        display_pricing_information()
-        display_pricing_calculator()
     col1, col2 = st.columns([1, 2])
 
     if 'new_df_to_be_processed' not in st.session_state:
@@ -1220,3 +1215,9 @@ def excelclassification_tool():
                 st.dataframe(new_column_results_df)
 
                 st.session_state['new_column_results_df'] = new_column_results_df
+
+        # Handle the 'Pricing' option
+        if 'Pricing' in selected_modes:
+            st.header("Pricing Information")
+            display_pricing_information()
+            display_pricing_calculator()
